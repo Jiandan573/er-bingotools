@@ -530,6 +530,21 @@ body.zoom-mini-source-timer.mode-zoom-right #live1 .live-tip {
   object-fit: contain;
   background: #000;
 }
+.live-iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: #000;
+}
+.live-crop-zoom .live-iframe {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  background: #000;
+  z-index: 1;
+}
 .live-window .live-tip {
   z-index: 2;
 }
@@ -546,6 +561,9 @@ body.zoom-mini-source-timer.mode-zoom-right #live1 .live-tip {
   align-items: center;
   justify-content: center;
   gap: 6px;
+}
+.live-window.live-embed-mode .live-overlay-zone {
+  display: none !important;
 }
 .live-overlay-btn {
   padding: 5px 10px;
@@ -593,6 +611,28 @@ body.zoom-mini-source-timer.mode-zoom-right #live1 .live-tip {
 }
 .live-modal-capture-row {
   margin-bottom: 14px;
+}
+.live-capture-mode-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.live-capture-mode-btn {
+  flex: 1;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid #555;
+  color: #ddd;
+  background: #2a2a2e;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.live-capture-mode-btn.is-selected {
+  border-color: #ffc107;
+  background: rgba(255, 193, 7, 0.18);
+  color: #ffe082;
 }
 .live-capture-hint {
   margin: 8px 0 0;
@@ -1079,6 +1119,7 @@ button:hover {filter: brightness(1.1); transform: translateY(-1px);}
 .btn-set {background: rgba(var(--accent-green-rgb), var(--surface-btn-a));}
 .btn-reset {background: rgba(var(--team-red-rgb), calc(var(--team-red-a) * var(--surface-btn-a)));}
 .btn-live {background: rgba(var(--accent-orange-rgb), var(--surface-btn-a));}
+.btn-maker {background: rgba(255, 193, 7, 0.85); color: #1a1a1a; font-weight: 700;}
 
 /* 棋盘 */
 .grid {
@@ -2156,56 +2197,6 @@ body.mode-zoom-right .zoom-timer-panel .zoom-timer-value {
 .cell-text-clear-notes-btn:hover {
   filter: brightness(1.08);
 }
-.delay-preview-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  margin-bottom: 14px;
-}
-.delay-preview-box {
-  position: relative;
-  aspect-ratio: 16/9;
-  background: #000;
-  border-radius: 6px;
-  overflow: hidden;
-  border: 1px solid #444;
-}
-.delay-preview-box video {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-.delay-preview-label {
-  position: absolute;
-  top: 4px;
-  left: 6px;
-  font-size: 11px;
-  color: #ffcc80;
-  background: rgba(0,0,0,0.6);
-  padding: 2px 6px;
-  border-radius: 4px;
-  z-index: 2;
-}
-.delay-slider-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 10px;
-}
-.delay-slider-row label {
-  flex: 0 0 72px;
-  font-size: 13px;
-  color: #ccc;
-}
-.delay-slider-row input[type="range"] {
-  flex: 1;
-}
-.delay-slider-val {
-  flex: 0 0 52px;
-  text-align: right;
-  font-size: 13px;
-  color: #ffcc80;
-}
 input[type="number"].wheel-adjust-active {
   outline: 1px solid #ffcc80;
 }
@@ -2355,6 +2346,7 @@ input[type="number"].wheel-adjust-active {
       <div class="live-crop-zoom" id="liveCropZoom1">
         <video class="live-video" id="liveVideo1" autoplay muted playsinline></video>
         <video class="live-local-video hide" id="localVideo1" autoplay muted playsinline></video>
+        <iframe class="live-iframe hide" id="liveIframe1" title="左B站播放器" allow="autoplay; fullscreen; encrypted-media; picture-in-picture" allowfullscreen referrerpolicy="no-referrer-when-downgrade"></iframe>
       </div>
     </div>
     <div class="zoom-mini-switcher" id="zoomMiniSwitcher1" aria-label="小画面来源">
@@ -2397,6 +2389,7 @@ input[type="number"].wheel-adjust-active {
       <div class="live-crop-zoom" id="liveCropZoom2">
         <video class="live-video" id="liveVideo2" autoplay muted playsinline></video>
         <video class="live-local-video hide" id="localVideo2" autoplay muted playsinline></video>
+        <iframe class="live-iframe hide" id="liveIframe2" title="右B站播放器" allow="autoplay; fullscreen; encrypted-media; picture-in-picture" allowfullscreen referrerpolicy="no-referrer-when-downgrade"></iframe>
       </div>
     </div>
     <div class="zoom-mini-switcher" id="zoomMiniSwitcher2" aria-label="小画面来源">
@@ -2491,11 +2484,11 @@ input[type="number"].wheel-adjust-active {
     <div class="btns-toolbar" id="btnsToolbar">
       <div class="btns">
         <button class="btn-set" onclick="showSetModal()">全局设置</button>
-        <button class="btn-set" onclick="showDelaySyncModal()">延迟同步</button>
         <button class="btn-set" onclick="showFontSizeModal()">字体大小</button>
         <button class="btn-reset" onclick="resetAll()">重置全表</button>
         <button class="btn-reset" onclick="resetSettle()">重置结算</button>
         <button class="btn-set" onclick="enterTableFocusMode()">表格展示模式</button>
+        <button class="btn-maker" onclick="goBingoMaker()">Bingo Maker</button>
       </div>
     </div>
     <div class="cell-notes-preamble-bar hide" id="cellNotesPreambleBar" aria-live="polite"></div>
@@ -2595,8 +2588,13 @@ input[type="number"].wheel-adjust-active {
     </div>
 
     <div class="modal-item live-modal-capture-row">
-      <button type="button" class="btn-capture-local" onclick="captureLocalScreenFromModal()">采集本地画面</button>
-      <p class="live-capture-hint">抖音网址点击“确认使用”后会打开页面并让你选择窗口/标签页；浏览器顶部的共享提示属于权限安全提示，网页无法隐藏。采集窗口需为窗口化或无边框全屏，独占全屏可能黑屏。</p>
+      <label class="modal-label">采集模式</label>
+      <div class="live-capture-mode-row" role="group" aria-label="采集模式">
+        <button type="button" class="live-capture-mode-btn" id="liveCaptureModeBtn1" onclick="setLiveCaptureMode(1)">模式一：B站播放器</button>
+        <button type="button" class="live-capture-mode-btn" id="liveCaptureModeBtn2" onclick="setLiveCaptureMode(2)">模式二：抖音采集</button>
+      </div>
+      <button type="button" class="btn-capture-local" id="liveCaptureLocalBtn" onclick="captureLocalScreenFromModal()">采集本地画面</button>
+      <p class="live-capture-hint" id="liveCaptureHint">模式一：确认使用时嵌入 B站官方活动播放器。也可另用下方「采集本地画面」。</p>
     </div>
 
     <div class="modal-buttons">
@@ -2885,45 +2883,12 @@ input[type="number"].wheel-adjust-active {
   </div>
 </div>
 
-<!-- 延迟同步 -->
-<div id="delaySyncModal" class="modal-overlay modal-hide">
-  <div class="modal" style="max-width: 720px;">
-    <div class="modal-title">延迟同步</div>
-    <p class="beautify-bg-hint" style="margin-bottom:12px">拖动滑轨调整左右画面延迟，使两侧直播尽量同步。调整后放大画面仍保持设定延迟。</p>
-    <div class="delay-preview-row">
-      <div class="delay-preview-box">
-        <span class="delay-preview-label">左侧预览</span>
-        <video id="delayPreviewVideo1" autoplay muted playsinline></video>
-      </div>
-      <div class="delay-preview-box">
-        <span class="delay-preview-label">右侧预览</span>
-        <video id="delayPreviewVideo2" autoplay muted playsinline></video>
-      </div>
-    </div>
-    <div class="delay-slider-row">
-      <label for="delaySlider1">左侧延迟</label>
-      <input type="range" id="delaySlider1" min="0" max="15000" step="100" value="0" oninput="onDelaySliderInput(1)">
-      <span class="delay-slider-val" id="delaySliderVal1">0.0s</span>
-    </div>
-    <div class="delay-slider-row">
-      <label for="delaySlider2">右侧延迟</label>
-      <input type="range" id="delaySlider2" min="0" max="15000" step="100" value="0" oninput="onDelaySliderInput(2)">
-      <span class="delay-slider-val" id="delaySliderVal2">0.0s</span>
-    </div>
-    <div class="modal-buttons">
-      <button type="button" class="modal-btn btn-confirm" onclick="saveDelaySyncAndClose()">保存并关闭</button>
-      <button type="button" class="modal-btn" style="background:#666" onclick="resetDelaySync()">重置为 0</button>
-      <button type="button" class="modal-btn btn-cancel" onclick="hideDelaySyncModal(true)">取消</button>
-    </div>
-  </div>
-</div>
-
 <!-- 历史表格 -->
 <div id="tableHistoryModal" class="modal-overlay modal-hide">
   <div class="modal" style="max-width: 420px;">
     <div class="modal-title">读取历史表格</div>
     <div class="modal-item" style="margin-bottom: 12px;">
-      <label class="modal-label">已保存的表格</label>
+      <label class="modal-label">已保存的表格（含 BingoMaker）</label>
       <select class="modal-input" id="savedTablesSelect">
         <option value="">-- 请选择 --</option>
       </select>
@@ -3221,6 +3186,8 @@ let resumeSetModalAfterLive = false;
 let cropDragState = null;
 // 本地采集流
 let localScreenStreams = { 1: null, 2: null };
+// 采集模式：1=B站活动播放器嵌入，2=本地画面采集（现模式）
+let liveCaptureMode = 2;
 // 已保存的直播来源；liveRoomIds 保留给旧配置兼容
 let liveRoomIds = { 1: '', 2: '' };
 let liveSources = { 1: createEmptyLiveSource(), 2: createEmptyLiveSource() };
@@ -3235,6 +3202,9 @@ let delayPreviewPlayers = { 1: null, 2: null };
 let delaySyncSnapshot = null;
 const LIVE_DELAY_MONITOR_MS = 3000;
 const LIVE_DELAY_DRIFT_SEC = 1.5;
+const LIVE_DELAY_SLIDER_DEBOUNCE_MS = 280;
+let liveDelayApplyToken = { 1: 0, 2: 0 };
+let delaySliderDebounceTimers = { 1: null, 2: null };
 let cellNoteHoverTimer = null;
 let cellNoteActiveCell = null;
 
@@ -3264,8 +3234,13 @@ function stopNetworkStream(side) {
 async function loadStream(side, source) {
   if (side !== 1 && side !== 2) return;
   if (!source || !source.type) return;
+  stopLiveIframe(side);
   if (source.type === 'local') {
     stopNetworkStream(side);
+    return;
+  }
+  if (source.type === 'bilibili' && source.playMode === 'embed') {
+    loadBilibiliEmbed(side, source.value);
     return;
   }
   const video = document.getElementById('liveVideo' + side);
@@ -3297,25 +3272,19 @@ async function loadStream(side, source) {
         isLive: true,
         hasAudio: true,
         hasVideo: true,
-        cors: false,
-        enableStashBuffer: true,
-        stashInitialSize: 512
+        cors: false
       });
       liveStreamPlayers[side] = player;
       player.attachMediaElement(video);
       player.load();
       player.play();
-      scheduleLiveDelayApply(side, video, player, res.kind);
     } else if (res.kind === 'hls') {
       if (typeof Hls !== 'undefined' && Hls.isSupported()) {
-        const player = new Hls(buildHlsPlayerConfig(side));
+        const player = new Hls({ enableWorker: true, liveSyncDurationCount: 3 });
         liveStreamPlayers[side] = player;
         player.loadSource('/live/stream/' + side);
         player.attachMedia(video);
-        player.on(Hls.Events.MANIFEST_PARSED, () => {
-          video.play().catch(() => {});
-          scheduleLiveDelayApply(side, video, player, res.kind);
-        });
+        player.on(Hls.Events.MANIFEST_PARSED, () => { video.play().catch(() => {}); });
         player.on(Hls.Events.ERROR, (e, d) => {
           if (d.fatal) {
             console.error('HLS fatal error', d);
@@ -3325,7 +3294,6 @@ async function loadStream(side, source) {
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
         video.src = '/live/stream/' + side;
         video.play().catch(() => {});
-        scheduleLiveDelayApply(side, video, null, res.kind);
       } else {
         setLiveTip(side, '当前浏览器不支持 HLS 播放', '');
         return;
@@ -3333,11 +3301,10 @@ async function loadStream(side, source) {
     } else {
       video.src = '/live/stream/' + side;
       video.play().catch(() => {});
-      scheduleLiveDelayApply(side, video, null, res.kind || 'hls');
     }
     applyLiveCropToMain(side);
     applyLiveMute(side);
-    ensureLiveDelayTicker();
+    syncLiveOverlayForSide(side);
   } catch (e) {
     console.error('ResolveLive error', e);
     setLiveTip(side, '取流失败', e && e.message ? e.message : '');
@@ -3354,6 +3321,11 @@ function refreshLive(side) {
   const source = normalizeLiveSource(liveSources[side]);
   if (!source.type) {
     showToast((side === 1 ? '左' : '右') + '侧未设置直播来源');
+    return;
+  }
+  if (isSideUsingIframe(side) || source.playMode === 'embed') {
+    loadBilibiliEmbed(side, source.value);
+    showToast((side === 1 ? '左' : '右') + '侧B站播放器已刷新');
     return;
   }
   loadStream(side, source);
@@ -3471,7 +3443,9 @@ function seekVideoToTargetDelay(video, delaySec) {
     const end = video.buffered.end(video.buffered.length - 1);
     const start = video.buffered.start(0);
     if (end - start + 0.05 < delaySec) return false;
-    video.currentTime = Math.max(start, end - delaySec);
+    const target = Math.max(start, end - delaySec);
+    if (Math.abs(video.currentTime - target) < 0.15) return true;
+    video.currentTime = target;
     return true;
   } catch (e) {
     return false;
@@ -3487,14 +3461,21 @@ function seekFlvVideoToLiveEdge(video) {
   try {
     if (video.buffered && video.buffered.length > 0) {
       const end = video.buffered.end(video.buffered.length - 1);
-      video.currentTime = Math.max(0, end - 0.3);
+      const target = Math.max(0, end - 0.3);
+      if (Math.abs(video.currentTime - target) > 0.2) video.currentTime = target;
     }
   } catch (e) {}
 }
 
+function bumpLiveDelayApplyToken(side) {
+  liveDelayApplyToken[side] = (liveDelayApplyToken[side] || 0) + 1;
+  return liveDelayApplyToken[side];
+}
+
 function forceApplyLiveDelayOnTarget(side, video, player, kind) {
   const delaySec = getTargetLiveDelaySec(side);
-  if (!video || isSideUsingLocalVideo(side)) return;
+  if (!video || isSideUsingLocalVideo(side) || isSideDelayUnsupported(side)) return;
+  const token = bumpLiveDelayApplyToken(side);
 
   if (kind === 'hls' && player && player.config) {
     applyHlsPlayerDelay(player, side);
@@ -3511,29 +3492,28 @@ function forceApplyLiveDelayOnTarget(side, video, player, kind) {
     return;
   }
 
-  const wasPaused = video.paused;
   video.pause();
   let attempts = 0;
   const trySeek = () => {
+    if (liveDelayApplyToken[side] !== token) return;
     attempts += 1;
     if (seekVideoToTargetDelay(video, delaySec)) {
       video.play().catch(() => {});
       return;
     }
-    if (attempts < 60) {
-      setTimeout(trySeek, 500);
-    } else if (!wasPaused) {
+    if (attempts < 40) {
+      setTimeout(trySeek, 400);
+    } else {
       video.play().catch(() => {});
     }
   };
-  setTimeout(trySeek, 300);
+  setTimeout(trySeek, 400);
 }
 
 function applyLiveDelayToTarget(side, video, player, kind, opts) {
   opts = opts || {};
   const force = !!opts.force;
-  const delaySec = getTargetLiveDelaySec(side);
-  if (isSideUsingLocalVideo(side)) return;
+  if (isSideUsingLocalVideo(side) || isSideDelayUnsupported(side)) return;
 
   if (force) {
     forceApplyLiveDelayOnTarget(side, video, player, kind);
@@ -3542,44 +3522,29 @@ function applyLiveDelayToTarget(side, video, player, kind, opts) {
 
   if (kind === 'hls' && player && player.config) {
     applyHlsPlayerDelay(player, side);
-    return;
-  }
-
-  if (kind === 'flv' && video && delaySec > 0) {
-    seekVideoToTargetDelay(video, delaySec);
-    return;
-  }
-
-  if (video && delaySec > 0) {
-    seekVideoToTargetDelay(video, delaySec);
-  } else if (video && delaySec <= 0) {
-    seekFlvVideoToLiveEdge(video);
   }
 }
 
 function monitorLiveDelayForTarget(side, video, player, kind) {
   const delaySec = getTargetLiveDelaySec(side);
-  if (delaySec <= 0 || isSideUsingLocalVideo(side)) return;
+  if (delaySec <= 0 || isSideUsingLocalVideo(side) || isSideDelayUnsupported(side)) return;
+  const measured = measureLiveDelaySec(video);
+  if (measured == null) return;
+  if (Math.abs(measured - delaySec) <= LIVE_DELAY_DRIFT_SEC) return;
 
   if (kind === 'hls') {
-    const measured = measureLiveDelaySec(video);
-    if (measured != null && Math.abs(measured - delaySec) > LIVE_DELAY_DRIFT_SEC) {
-      if (player) applyHlsPlayerDelay(player, side);
-      seekVideoToTargetDelay(video, delaySec);
-    }
+    if (player) applyHlsPlayerDelay(player, side);
+    seekVideoToTargetDelay(video, delaySec);
     return;
   }
 
   if (kind === 'flv' && video) {
-    const measured = measureLiveDelaySec(video);
-    if (measured == null) return;
-    if (Math.abs(measured - delaySec) > LIVE_DELAY_DRIFT_SEC) {
-      seekFlvVideoToTargetDelay(video, delaySec);
-    }
+    seekFlvVideoToTargetDelay(video, delaySec);
   }
 }
 
 function applyLiveDelayToSide(side, opts) {
+  if (isSideDelayUnsupported(side) || isSideUsingLocalVideo(side)) return;
   const kind = liveStreamKinds[side];
   const video = document.getElementById('liveVideo' + side);
   const player = liveStreamPlayers[side];
@@ -3588,15 +3553,24 @@ function applyLiveDelayToSide(side, opts) {
 }
 
 function applyLiveDelayToPreviewSide(side, opts) {
+  opts = opts || {};
+  if (isSideDelayUnsupported(side)) return;
+  if (isSideUsingLocalVideo(side)) return;
   const kind = liveStreamKinds[side];
   const video = document.getElementById('delayPreviewVideo' + side);
-  const player = delayPreviewPlayers[side];
   if (!kind || !video) return;
+
+  let player = delayPreviewPlayers[side];
+  if (!player && (kind === 'hls' || kind === 'flv')) {
+    startDelayPreview(side);
+    return;
+  }
   applyLiveDelayToTarget(side, video, player, kind, opts);
 }
 
 function scheduleLiveDelayApply(side, video, player, kind) {
-  if (!video) return;
+  if (!video || isSideDelayUnsupported(side) || isSideUsingLocalVideo(side)) return;
+  if (getTargetLiveDelaySec(side) <= 0) return;
   const run = () => forceApplyLiveDelayOnTarget(side, video, player, kind);
   if (video.readyState >= 2) {
     setTimeout(run, 500);
@@ -3621,9 +3595,10 @@ function startLiveDelayTicker() {
   if (liveDelayTicker) return;
   liveDelayTicker = setInterval(() => {
     [1, 2].forEach((side) => {
+      if (isSideDelayUnsupported(side) || isSideUsingLocalVideo(side)) return;
       const kind = liveStreamKinds[side];
       const video = document.getElementById('liveVideo' + side);
-      if (kind && video && !video.classList.contains('hide') && !isSideUsingLocalVideo(side)) {
+      if (kind && video && !video.classList.contains('hide')) {
         monitorLiveDelayForTarget(side, video, liveStreamPlayers[side], kind);
       }
       const previewVideo = document.getElementById('delayPreviewVideo' + side);
@@ -3654,14 +3629,36 @@ function stopDelayPreviewPlayers() {
       video.src = '';
       video.load();
     }
+    const unsupported = document.getElementById('delayPreviewUnsupported' + side);
+    const box = document.getElementById('delayPreviewBox' + side);
+    if (unsupported) unsupported.classList.add('hide');
+    if (box) box.classList.remove('is-unsupported');
   });
 }
 
 function startDelayPreview(side) {
   const video = document.getElementById('delayPreviewVideo' + side);
+  const unsupported = document.getElementById('delayPreviewUnsupported' + side);
+  const box = document.getElementById('delayPreviewBox' + side);
   if (!video) return;
   const old = delayPreviewPlayers[side];
   if (old) { try { old.destroy(); } catch (e) {} delayPreviewPlayers[side] = null; }
+
+  if (isSideDelayUnsupported(side)) {
+    video.pause();
+    video.srcObject = null;
+    video.removeAttribute('src');
+    video.src = '';
+    video.load();
+    if (unsupported) {
+      unsupported.textContent = 'B站嵌入不支持延迟';
+      unsupported.classList.remove('hide');
+    }
+    if (box) box.classList.add('is-unsupported');
+    return;
+  }
+  if (unsupported) unsupported.classList.add('hide');
+  if (box) box.classList.remove('is-unsupported');
 
   if (isSideUsingLocalVideo(side)) {
     const srcVideo = document.getElementById('localVideo' + side);
@@ -3672,7 +3669,15 @@ function startDelayPreview(side) {
 
   const kind = liveStreamKinds[side];
   const streamUrl = '/live/stream/' + side;
-  if (!kind) return;
+  if (!kind) {
+    // 尚无取流时给提示，避免空白误以为坏了
+    if (unsupported) {
+      unsupported.textContent = '该侧暂无网络流，请先确认使用取流';
+      unsupported.classList.remove('hide');
+    }
+    if (box) box.classList.add('is-unsupported');
+    return;
+  }
 
   if (kind === 'flv' && typeof flvjs !== 'undefined' && flvjs.isSupported()) {
     const player = flvjs.createPlayer({
@@ -3688,7 +3693,7 @@ function startDelayPreview(side) {
     delayPreviewPlayers[side] = player;
     player.attachMediaElement(video);
     player.load();
-    player.play();
+    player.play().catch(() => {});
     scheduleLiveDelayApply(side, video, player, kind);
   } else if (kind === 'hls' && typeof Hls !== 'undefined' && Hls.isSupported()) {
     const player = new Hls(buildHlsPlayerConfig(side));
@@ -3710,25 +3715,68 @@ function syncDelaySliderUI() {
   [1, 2].forEach((side) => {
     const slider = document.getElementById('delaySlider' + side);
     const label = document.getElementById('delaySliderVal' + side);
-    const ms = liveDelayMs[side] || 0;
-    if (slider) slider.value = String(ms);
-    if (label) label.textContent = (ms / 1000).toFixed(1) + 's';
+    const row = document.getElementById('delaySliderRow' + side);
+    const unsupported = isSideDelayUnsupported(side);
+    const localOnly = !unsupported && isSideUsingLocalVideo(side);
+    const noStream = !unsupported && !localOnly && !liveStreamKinds[side];
+    const disabled = unsupported || localOnly || noStream;
+    const ms = unsupported ? 0 : (liveDelayMs[side] || 0);
+    if (unsupported) liveDelayMs[side] = 0;
+    if (slider) {
+      slider.value = String(ms);
+      slider.disabled = disabled;
+    }
+    if (label) {
+      if (unsupported) label.textContent = '不可用';
+      else if (localOnly) label.textContent = '本地采集';
+      else if (noStream) label.textContent = '无流';
+      else label.textContent = (ms / 1000).toFixed(1) + 's';
+    }
+    if (row) row.classList.toggle('is-disabled', disabled);
   });
 }
 
 function onDelaySliderInput(side) {
+  if (isSideDelayUnsupported(side)) {
+    syncDelaySliderUI();
+    showToast((side === 1 ? '左' : '右') + '侧为B站嵌入，无法设置延迟');
+    return;
+  }
+  if (isSideUsingLocalVideo(side)) {
+    showToast((side === 1 ? '左' : '右') + '侧为本地采集，无法设置延迟');
+    return;
+  }
+  if (!liveStreamKinds[side]) {
+    showToast((side === 1 ? '左' : '右') + '侧尚无网络流，请先确认使用取流');
+    return;
+  }
   const slider = document.getElementById('delaySlider' + side);
   const label = document.getElementById('delaySliderVal' + side);
   if (!slider) return;
   const ms = Math.max(0, Math.min(15000, parseInt(slider.value, 10) || 0));
   liveDelayMs[side] = ms;
   if (label) label.textContent = (ms / 1000).toFixed(1) + 's';
-  applyLiveDelayToSide(side, { force: true });
-  applyLiveDelayToPreviewSide(side, { force: true });
-  ensureLiveDelayTicker();
+  if (delaySliderDebounceTimers[side]) clearTimeout(delaySliderDebounceTimers[side]);
+  delaySliderDebounceTimers[side] = setTimeout(() => {
+    delaySliderDebounceTimers[side] = null;
+    applyLiveDelayToSide(side, { force: true });
+    applyLiveDelayToPreviewSide(side, { force: true });
+    ensureLiveDelayTicker();
+  }, LIVE_DELAY_SLIDER_DEBOUNCE_MS);
+}
+
+function flushDelaySliderDebounce(side) {
+  if (delaySliderDebounceTimers[side]) {
+    clearTimeout(delaySliderDebounceTimers[side]);
+    delaySliderDebounceTimers[side] = null;
+  }
 }
 
 function showDelaySyncModal() {
+  [1, 2].forEach((side) => {
+    flushDelaySliderDebounce(side);
+    if (isSideDelayUnsupported(side)) liveDelayMs[side] = 0;
+  });
   delaySyncSnapshot = { ...liveDelayMs };
   syncDelaySliderUI();
   stopDelayPreviewPlayers();
@@ -3738,6 +3786,7 @@ function showDelaySyncModal() {
 }
 
 function hideDelaySyncModal(revert) {
+  [1, 2].forEach(flushDelaySliderDebounce);
   if (revert && delaySyncSnapshot) {
     liveDelayMs = { ...delaySyncSnapshot };
     [1, 2].forEach((side) => applyLiveDelayToSide(side, { force: true }));
@@ -3749,6 +3798,7 @@ function hideDelaySyncModal(revert) {
 }
 
 function saveDelaySyncAndClose() {
+  [1, 2].forEach(flushDelaySliderDebounce);
   saveLiveDelay();
   delaySyncSnapshot = { ...liveDelayMs };
   [1, 2].forEach((side) => applyLiveDelayToSide(side, { force: true }));
@@ -3759,6 +3809,7 @@ function saveDelaySyncAndClose() {
 }
 
 function resetDelaySync() {
+  [1, 2].forEach(flushDelaySliderDebounce);
   liveDelayMs = { 1: 0, 2: 0 };
   syncDelaySliderUI();
   [1, 2].forEach((side) => {
@@ -3773,8 +3824,73 @@ function bilibiliLiveEmbedUrl(roomId) {
   return `https://www.bilibili.com/blackboard/live/live-activity-player.html?cid=${roomId}`;
 }
 
+function stopLiveIframe(side) {
+  const iframe = document.getElementById('liveIframe' + side);
+  if (!iframe) return;
+  iframe.src = 'about:blank';
+  iframe.classList.add('hide');
+  syncLiveOverlayForSide(side);
+}
+
+function isSideUsingIframe(side) {
+  const iframe = document.getElementById('liveIframe' + side);
+  if (!iframe || iframe.classList.contains('hide')) return false;
+  const src = (iframe.getAttribute('src') || iframe.src || '').trim();
+  return !!src && !/^about:blank$/i.test(src);
+}
+
+function isSideDelayUnsupported(side) {
+  if (isSideUsingIframe(side)) return true;
+  const source = normalizeLiveSource(liveSources[side]);
+  return source.type === 'bilibili' && source.playMode === 'embed';
+}
+
+function syncLiveOverlayForSide(side) {
+  const win = document.getElementById('live' + side);
+  if (!win) return;
+  win.classList.toggle('live-embed-mode', isSideUsingIframe(side));
+}
+
+function loadBilibiliEmbed(side, roomId) {
+  if (side !== 1 && side !== 2) return;
+  const id = String(roomId || '').trim();
+  if (!/^\d+$/.test(id)) {
+    showToast('模式一需要有效的B站房间号');
+    return;
+  }
+  stopLocalScreen(side);
+  stopNetworkStream(side);
+  const video = document.getElementById('liveVideo' + side);
+  const localVideo = document.getElementById('localVideo' + side);
+  const iframe = document.getElementById('liveIframe' + side);
+  const tip = document.getElementById('tip' + side);
+  if (video) {
+    video.pause();
+    video.removeAttribute('src');
+    video.src = '';
+    video.classList.add('hide');
+  }
+  if (localVideo) {
+    localVideo.pause();
+    localVideo.srcObject = null;
+    localVideo.classList.add('hide');
+  }
+  if (iframe) {
+    iframe.src = bilibiliLiveEmbedUrl(id);
+    iframe.classList.remove('hide');
+  }
+  if (tip) tip.classList.add('hide');
+  liveDelayMs[side] = 0;
+  saveLiveDelay();
+  applyLiveCropToMain(side);
+  setLiveSource(side, { type: 'bilibili', value: id, playMode: 'embed' });
+  saveLiveSources();
+  syncLiveOverlayForSide(side);
+  ensureLiveDelayTicker();
+}
+
 function createEmptyLiveSource() {
-  return { type: '', value: '' };
+  return { type: '', value: '', playMode: '' };
 }
 
 function extractBilibiliRoomId(url) {
@@ -3814,6 +3930,9 @@ function normalizeLiveSource(source) {
   if (!parsed) return createEmptyLiveSource();
   if (source.type === 'douyin' && parsed.type !== 'douyin') return createEmptyLiveSource();
   if (source.type === 'bilibili' && parsed.type !== 'bilibili') return createEmptyLiveSource();
+  if (parsed.type === 'bilibili' && source.playMode === 'embed') {
+    parsed.playMode = 'embed';
+  }
   return parsed;
 }
 
@@ -3855,6 +3974,9 @@ function syncLiveRoomIdsFromSources() {
 function setLiveSource(side, source) {
   if (side !== 1 && side !== 2) return;
   liveSources[side] = normalizeLiveSource(source);
+  if (source && source.playMode === 'embed' && liveSources[side].type === 'bilibili') {
+    liveSources[side].playMode = 'embed';
+  }
   syncLiveRoomIdsFromSources();
 }
 
@@ -3869,6 +3991,43 @@ function isValidLiveEmbedUrl(url) {
 function isSideUsingLocalVideo(side) {
   const video = document.getElementById('localVideo' + side);
   return !!(video && !video.classList.contains('hide') && video.srcObject);
+}
+
+function getLiveCaptureMode() {
+  return liveCaptureMode === 1 ? 1 : 2;
+}
+
+function saveLiveCaptureMode() {
+  try {
+    localStorage.setItem('bingotools_live_capture_mode', String(getLiveCaptureMode()));
+  } catch (e) {}
+}
+
+function loadLiveCaptureMode() {
+  try {
+    const raw = localStorage.getItem('bingotools_live_capture_mode');
+    if (raw === '1' || raw === '2') liveCaptureMode = Number(raw);
+  } catch (e) {}
+}
+
+function setLiveCaptureMode(mode) {
+  liveCaptureMode = mode === 1 ? 1 : 2;
+  saveLiveCaptureMode();
+  syncLiveCaptureModeUI();
+}
+
+function syncLiveCaptureModeUI() {
+  const mode = getLiveCaptureMode();
+  const btn1 = document.getElementById('liveCaptureModeBtn1');
+  const btn2 = document.getElementById('liveCaptureModeBtn2');
+  const hint = document.getElementById('liveCaptureHint');
+  if (btn1) btn1.classList.toggle('is-selected', mode === 1);
+  if (btn2) btn2.classList.toggle('is-selected', mode === 2);
+  if (hint) {
+    hint.textContent = mode === 1
+      ? '模式一：确认使用时嵌入 B站官方活动播放器（live-activity-player?cid=）。也可另用下方「采集本地画面」。'
+      : '模式二：确认使用时按输入的抖音直播网址直接取流播放（无需采集屏幕）。也可另用下方「采集本地画面」。';
+  }
 }
 
 function resolveLiveEmbedUrl(side) {
@@ -4049,13 +4208,15 @@ function saveLiveCrop() {
 function applyLiveCropToMain(side) {
   const frame = document.getElementById('liveVideo' + side);
   const localVideo = document.getElementById('localVideo' + side);
+  const iframe = document.getElementById('liveIframe' + side);
   const zoom = document.getElementById('liveCropZoom' + side);
-  if (!frame && !localVideo) return;
+  if (!frame && !localVideo && !iframe) return;
   const r = liveCrop[side];
   if (!r) return;
   if (r.w >= 99.5 && r.h >= 99.5 && r.l <= 0.25 && r.t <= 0.25) {
     if (frame) frame.style.clipPath = '';
     if (localVideo) localVideo.style.clipPath = '';
+    if (iframe) iframe.style.clipPath = '';
     if (zoom) {
       zoom.style.left = '';
       zoom.style.top = '';
@@ -4068,6 +4229,7 @@ function applyLiveCropToMain(side) {
   const h = Math.max(5, r.h);
   if (frame) frame.style.clipPath = 'none';
   if (localVideo) localVideo.style.clipPath = 'none';
+  if (iframe) iframe.style.clipPath = 'none';
   if (zoom) {
     zoom.style.left = (-100 * r.l / w) + '%';
     zoom.style.top = (-100 * r.t / h) + '%';
@@ -4080,6 +4242,7 @@ function applyLiveCropToMain(side) {
     const insetLeft = r.l;
     if (frame) frame.style.clipPath = `inset(${insetTop}% ${insetRight}% ${insetBottom}% ${insetLeft}%)`;
     if (localVideo) localVideo.style.clipPath = `inset(${insetTop}% ${insetRight}% ${insetBottom}% ${insetLeft}%)`;
+    if (iframe) iframe.style.clipPath = `inset(${insetTop}% ${insetRight}% ${insetBottom}% ${insetLeft}%)`;
   }
 }
 
@@ -4268,6 +4431,10 @@ function exitTableFocusMode() {
   showToast('已退出表格展示模式');
 }
 
+function goBingoMaker() {
+  window.location.href = 'bingomaker.html';
+}
+
 function loadZoomMiniSource() {
   try {
     const saved = localStorage.getItem('bingotools_zoom_mini_source');
@@ -4355,6 +4522,8 @@ window.onload = function() {
   loadStreamersList();
   loadSavedTablesList();
   loadLiveRoomIds();
+  loadLiveCaptureMode();
+  syncLiveCaptureModeUI();
   loadLiveCrop();
   loadZoomMiniSource();
   restoreLiveFramesFromSaved();
@@ -4582,8 +4751,7 @@ function computeMaxAchievableBingoCount(isRed) {
     }
     if (lines > maxLines) maxLines = lines;
   }
-  const perLine = getMaxTasksPerLineVal();
-  if (perLine < 5) maxLines = Math.min(maxLines, perLine);
+  // 注意：同一格可计入多条 bingo，不可用「每行完成上限」直接截断 bingo 条数
   return maxLines;
 }
 
@@ -5808,7 +5976,10 @@ function renderCellTextForm() {
 }
 
 function parseNoteCoordLine(line) {
-  const m = String(line || '').trim().match(/^(\d+)\s*[-–—]\s*(\d+)\s*[:：]\s*(.*)$/);
+  // 兼容 1-1: / 1-1： / 1-1 / 1－1说明 等；冒号、点号等分隔符可省略
+  const m = String(line || '').trim().match(
+    /^(\d+)\s*[-–—－]\s*(\d+)\s*(?:[:：.．、,，/／]\s*)?(.*)$/
+  );
   if (!m) return null;
   const row = parseInt(m[1], 10);
   const col = parseInt(m[2], 10);
@@ -5915,19 +6086,96 @@ function cellTextAutoAdapt() {
 }
 
 let savedTablesList = [];
+const BINGO_MAKER_SAVED_KEY = 'bingo-maker-saved-v1';
 
-function loadSavedTablesList() {
-  const raw = localStorage.getItem('bingotools_saved_tables');
-  if (raw) {
-    try { savedTablesList = JSON.parse(raw); }
-    catch (e) { savedTablesList = []; }
-  } else {
-    savedTablesList = [];
+function padCellArray(list, fallback = '') {
+  const out = Array(25).fill(fallback);
+  if (!Array.isArray(list)) return out;
+  for (let i = 0; i < 25; i++) {
+    out[i] = typeof list[i] === 'string' ? list[i] : fallback;
+  }
+  return out;
+}
+
+function normalizeToolsSavedTable(entry) {
+  return {
+    name: (entry && entry.name) || '未命名',
+    content: typeof entry.content === 'string' ? entry.content : '',
+    cellTexts: null,
+    cellNotes: Array.isArray(entry.cellNotes) ? padCellArray(entry.cellNotes, '') : Array(25).fill(''),
+    cellNotesPreamble: typeof entry.cellNotesPreamble === 'string' ? entry.cellNotesPreamble : '',
+    savedAt: entry.savedAt || 0,
+    source: 'tools'
+  };
+}
+
+function normalizeMakerSavedTable(entry) {
+  const grid = padCellArray(entry && entry.grid, '');
+  const remarks = padCellArray(entry && entry.remarks, '');
+  const name = (entry && (entry.name || entry.tableName)) || '未命名';
+  const author = entry && entry.tableAuthor ? String(entry.tableAuthor).trim() : '';
+  const preambleParts = [];
+  if (entry && entry.tableName && String(entry.tableName).trim() && String(entry.tableName).trim() !== name) {
+    preambleParts.push('表名：' + String(entry.tableName).trim());
+  }
+  if (author) preambleParts.push('表作者：' + author);
+  return {
+    name,
+    content: grid.join('\n'),
+    cellTexts: grid,
+    cellNotes: remarks,
+    cellNotesPreamble: preambleParts.join('\n'),
+    savedAt: (entry && (entry.savedAt || entry.id)) || 0,
+    source: 'maker',
+    makerId: entry && entry.id
+  };
+}
+
+function readBingoMakerSavedRaw() {
+  const raw = localStorage.getItem(BINGO_MAKER_SAVED_KEY);
+  if (!raw) return [];
+  try {
+    const list = JSON.parse(raw);
+    return Array.isArray(list) ? list : [];
+  } catch (e) {
+    return [];
   }
 }
 
+function writeBingoMakerSavedRaw(list) {
+  localStorage.setItem(BINGO_MAKER_SAVED_KEY, JSON.stringify(list));
+}
+
+function loadSavedTablesList() {
+  let toolsList = [];
+  const raw = localStorage.getItem('bingotools_saved_tables');
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw);
+      toolsList = Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      toolsList = [];
+    }
+  }
+  const merged = toolsList.map(normalizeToolsSavedTable);
+  readBingoMakerSavedRaw().forEach((item) => {
+    merged.push(normalizeMakerSavedTable(item));
+  });
+  merged.sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
+  savedTablesList = merged;
+}
+
 function persistSavedTablesList() {
-  localStorage.setItem('bingotools_saved_tables', JSON.stringify(savedTablesList));
+  const toolsOnly = savedTablesList
+    .filter((t) => t.source !== 'maker')
+    .map((t) => ({
+      name: t.name,
+      content: t.content,
+      cellNotes: Array.isArray(t.cellNotes) ? t.cellNotes : Array(25).fill(''),
+      cellNotesPreamble: t.cellNotesPreamble || '',
+      savedAt: t.savedAt || Date.now()
+    }));
+  localStorage.setItem('bingotools_saved_tables', JSON.stringify(toolsOnly));
 }
 
 function refreshSavedTablesSelect() {
@@ -5937,7 +6185,7 @@ function refreshSavedTablesSelect() {
   savedTablesList.forEach((t, index) => {
     const opt = document.createElement('option');
     opt.value = index;
-    opt.innerText = t.name;
+    opt.innerText = t.source === 'maker' ? `${t.name}（BingoMaker）` : t.name;
     select.appendChild(opt);
   });
 }
@@ -5959,6 +6207,7 @@ function getTableSnapshotFromForm() {
 }
 
 function saveCurrentTable() {
+  loadSavedTablesList();
   const snap = getTableSnapshotFromForm();
   const content = snap.cellTexts.join('\n');
   const name = prompt('请输入表格名称');
@@ -5968,15 +6217,15 @@ function saveCurrentTable() {
     showToast('请输入有效的表格名称');
     return;
   }
-  const existingIdx = savedTablesList.findIndex((t) => t.name === trimmed);
+  const existingIdx = savedTablesList.findIndex((t) => t.source !== 'maker' && t.name === trimmed);
   if (existingIdx >= 0 && !confirm(`名称「${trimmed}」已存在，是否覆盖？`)) return;
-  const entry = {
+  const entry = normalizeToolsSavedTable({
     name: trimmed,
     content,
     cellNotes: snap.cellNotes,
     cellNotesPreamble: snap.cellNotesPreamble,
     savedAt: Date.now()
-  };
+  });
   if (existingIdx >= 0) savedTablesList[existingIdx] = entry;
   else savedTablesList.push(entry);
   persistSavedTablesList();
@@ -5986,7 +6235,7 @@ function saveCurrentTable() {
 function showLoadTableHistory() {
   loadSavedTablesList();
   if (!savedTablesList.length) {
-    showToast('暂无历史表格，请先保存');
+    showToast('暂无历史表格，请先在 BingoTools 或 BingoMaker 中保存');
     return;
   }
   refreshSavedTablesSelect();
@@ -6008,16 +6257,21 @@ function loadSelectedTable() {
     showToast('表格不存在');
     return;
   }
-  settings.cellTexts = parseCellTextsFromInput(table.content || '');
-  if (Array.isArray(table.cellNotes) && table.cellNotes.length === 25) {
-    settings.cellNotes = table.cellNotes.map((n) => (typeof n === 'string' ? n : ''));
+  if (Array.isArray(table.cellTexts) && table.cellTexts.length === 25) {
+    settings.cellTexts = padCellArray(table.cellTexts, '');
+  } else {
+    settings.cellTexts = parseCellTextsFromInput(table.content || '');
   }
+  settings.cellNotes = Array.isArray(table.cellNotes) && table.cellNotes.length === 25
+    ? padCellArray(table.cellNotes, '')
+    : Array(25).fill('');
   settings.cellNotesPreamble = typeof table.cellNotesPreamble === 'string' ? table.cellNotesPreamble : '';
   renderCellTextForm();
   render();
   hideTableHistoryModal();
   const hasNotes = settings.cellNotes.some((n) => (n || '').trim()) || (settings.cellNotesPreamble || '').trim();
-  showToast(hasNotes ? `已加载「${table.name}」（含批注）` : `已加载「${table.name}」`);
+  const fromMaker = table.source === 'maker' ? '（来自 BingoMaker）' : '';
+  showToast(hasNotes ? `已加载「${table.name}」${fromMaker}（含批注）` : `已加载「${table.name}」${fromMaker}`);
 }
 
 function deleteSelectedTable() {
@@ -6028,8 +6282,16 @@ function deleteSelectedTable() {
   }
   const table = savedTablesList[idx];
   if (!table) return;
-  if (!confirm(`确定删除「${table.name}」？`)) return;
-  savedTablesList.splice(idx, 1);
+  const label = table.source === 'maker' ? `${table.name}（BingoMaker）` : table.name;
+  if (!confirm(`确定删除「${label}」？`)) return;
+  if (table.source === 'maker') {
+    const makerList = readBingoMakerSavedRaw().filter((item) => {
+      if (table.makerId != null && item.id != null) return item.id !== table.makerId;
+      return (item.name || item.tableName) !== table.name;
+    });
+    writeBingoMakerSavedRaw(makerList);
+  }
+  savedTablesList.splice(Number(idx), 1);
   persistSavedTablesList();
   refreshSavedTablesSelect();
   showToast('已删除');
@@ -6366,8 +6628,8 @@ const SCORE_PRESETS = {
     allowLateFill: 1, // 后完成是否允许涂色：1允许 0不允许
     bingoScore: 3, // 第一条bingo分额
     maxGlobalSettleCount: 2, // 全局有效结算数上限
-    maxBingoCountRed: 3, // 红方bingo条数上限
-    maxBingoCountBlue: 3, // 蓝方bingo条数上限
+    maxBingoCountRed: 4, // 红方bingo条数上限（两列+两斜）
+    maxBingoCountBlue: 4, // 蓝方bingo条数上限（两列+两斜）
     bingoScoreRest: 1, // 除第一条bingo分额
     maxSettleCount: 1, // 单方结算次数上限
     settleScorePerTime: 2, // 第一次结算分额
@@ -6872,6 +7134,7 @@ function showLiveModal(num) {
   document.getElementById('savedStreamers').value = '';
   document.getElementById('streamerName').value = '';
   document.getElementById('liveIdInput').value = getLiveSourceInputValue(liveSources[num]);
+  syncLiveCaptureModeUI();
   document.getElementById('liveModal').classList.remove('modal-hide');
 }
 
@@ -6899,6 +7162,7 @@ function hideLiveModal() {
 }
 
 function hasVisibleLiveContent(side) {
+  if (isSideUsingIframe(side)) return true;
   const localVideo = document.getElementById('localVideo' + side);
   if (localVideo && !localVideo.classList.contains('hide') && localVideo.srcObject) return true;
   const video = document.getElementById('liveVideo' + side);
@@ -6931,6 +7195,7 @@ function stopLocalScreen(side) {
     video.classList.add('hide');
   }
   if (frame) frame.classList.remove('hide');
+  syncLiveOverlayForSide(side);
 }
 
 // 弹窗里采集屏幕
@@ -6959,6 +7224,7 @@ async function captureLocalScreen(side, opts = {}) {
       audio: false
     });
     stopLocalScreen(side);
+    stopLiveIframe(side);
     localScreenStreams[side] = stream;
     stopNetworkStream(side);
     const frame = document.getElementById('liveVideo' + side);
@@ -6977,6 +7243,7 @@ async function captureLocalScreen(side, opts = {}) {
     if (tip) tip.classList.add('hide');
     applyLiveMute(side);
     ensureLiveDelayTicker();
+    syncLiveOverlayForSide(side);
     const track = stream.getVideoTracks()[0];
     if (track) {
       track.onended = function () {
@@ -7005,12 +7272,23 @@ function confirmLiveId() {
   const name = document.getElementById('streamerName').value.trim();
   const source = parseLiveSource(sourceInput);
   if(!source) {showToast('请输入有效的B站房间号或抖音直播网址'); return;}
-  setLiveSource(currentLiveNum, source);
-  saveLiveSources();
   applyStreamerNameToTeam(currentLiveNum, name);
+
+  // 模式一：B站走官方播放器嵌入
+  if (getLiveCaptureMode() === 1 && source.type === 'bilibili') {
+    hideLiveModal();
+    loadBilibiliEmbed(currentLiveNum, source.value);
+    showToast(`${currentLiveNum===1?'左':'右'}直播间已用B站播放器`);
+    return;
+  }
+
+  // 模式二（及非嵌入场景）：按网址/房间号直接取流，不采集屏幕
   stopLocalScreen(currentLiveNum);
+  stopLiveIframe(currentLiveNum);
+  setLiveSource(currentLiveNum, { type: source.type, value: source.value, playMode: '' });
+  saveLiveSources();
   hideLiveModal();
-  loadStream(currentLiveNum, source);
+  loadStream(currentLiveNum, liveSources[currentLiveNum]);
   showToast(`${currentLiveNum===1?'左':'右'}直播间已设置`);
 }
 

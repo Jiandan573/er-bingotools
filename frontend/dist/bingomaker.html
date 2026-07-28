@@ -1,0 +1,2773 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Bingo Maker</title>
+<style>
+/* 全局变量与页面骨架 */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #121214;
+  --surface: #1a1a1e;
+  --surface-mid: #222222;
+  --border: #444444;
+  --text: #ffffff;
+  --red: #e53935;
+  --green: #00897b;
+  --blue: #1e88e5;
+  --orange: #fb8c00;
+  --purple: #7b1fa2;
+}
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Microsoft YaHei', Arial, sans-serif;
+}
+body {
+  display: flex;
+  padding: 14px 14px 32px;
+  gap: 14px;
+  position: relative;
+}
+.app-footer {
+  position: fixed;
+  right: 16px;
+  bottom: 10px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.38);
+  letter-spacing: 0.02em;
+  pointer-events: none;
+  z-index: 50;
+  user-select: none;
+}
+
+/* 草稿栏：临时记录任务文本 */
+.draft-panel {
+  flex: 0 0 22%;
+  min-width: 200px;
+  max-width: 320px;
+  display: flex;
+  flex-direction: column;
+  border: 2px solid var(--red);
+  border-radius: 8px;
+  background: rgba(26, 26, 30, 0.95);
+  overflow: hidden;
+}
+.draft-header {
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(229, 57, 53, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.draft-header h2 {
+  font-size: 15px;
+  font-weight: 700;
+  color: #ff8a80;
+}
+.draft-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 10px;
+  gap: 8px;
+}
+.draft-tip {
+  font-size: 12px;
+  color: #888;
+  line-height: 1.5;
+  flex-shrink: 0;
+}
+#draftInput {
+  flex: 1;
+  min-height: 120px;
+  resize: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-mid);
+  color: var(--text);
+  padding: 10px;
+  font-size: 13px;
+  line-height: 1.55;
+  font-family: inherit;
+  outline: none;
+}
+#draftInput:focus {
+  border-color: rgba(229, 57, 53, 0.6);
+}
+.draft-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.draft-actions button {
+  flex: 1;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 6px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  color: #fff;
+  transition: filter 0.15s, transform 0.15s;
+}
+.draft-actions button:hover { filter: brightness(1.1); transform: translateY(-1px); }
+.btn-clear-draft { background: #546e7a; }
+
+/* 主区域：工具栏 + 工作区 */
+.main-panel {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* 工具栏：表名作者与操作按钮 */
+.toolbar {
+  flex-shrink: 0;
+  border: 2px solid rgba(255, 255, 255, 0.85);
+  border-radius: 8px;
+  background: rgba(26, 26, 30, 0.95);
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.toolbar-label {
+  font-size: 13px;
+  color: #ccc;
+  margin-right: 4px;
+}
+.toolbar button {
+  border: none;
+  border-radius: 6px;
+  padding: 9px 18px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  color: #fff;
+  transition: filter 0.15s, transform 0.15s;
+}
+.toolbar button:hover { filter: brightness(1.1); transform: translateY(-1px); }
+.btn-export-excel { background: var(--green); }
+.btn-export-text { background: var(--blue); }
+.btn-drag-mode { background: var(--purple); }
+.btn-drag-mode.active { background: var(--orange); box-shadow: 0 0 0 2px rgba(251, 140, 0, 0.45); }
+.btn-remark-mode { background: #00838f; }
+.btn-remark-mode.active { background: var(--orange); box-shadow: 0 0 0 2px rgba(251, 140, 0, 0.45); }
+.btn-save-table { background: #5e35b1; }
+.btn-load-table { background: #546e7a; }
+.btn-import-text { background: #ef6c00; }
+.btn-clear-grid { background: var(--red); }
+.btn-back-tools { background: #ffc107; color: #1a1a1a; }
+.saved-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.saved-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-mid);
+}
+.saved-item-info {
+  flex: 1;
+  min-width: 0;
+}
+.saved-item-name {
+  font-size: 13px;
+  font-weight: 700;
+}
+.saved-item-meta {
+  font-size: 11px;
+  color: #888;
+  margin-top: 2px;
+}
+.saved-item-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.saved-item-actions button {
+  border: none;
+  border-radius: 4px;
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  color: #fff;
+}
+.btn-saved-load { background: var(--green); }
+.btn-saved-del { background: var(--red); }
+.saved-empty {
+  font-size: 12px;
+  color: #888;
+  text-align: center;
+  padding: 16px 8px;
+}
+.toolbar-fields {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  flex: 1;
+  min-width: 0;
+}
+.toolbar-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.toolbar-field label {
+  font-size: 12px;
+  color: #aaa;
+  white-space: nowrap;
+}
+.toolbar-field input {
+  width: 140px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-mid);
+  color: var(--text);
+  padding: 7px 10px;
+  font-size: 13px;
+  outline: none;
+}
+.toolbar-field input:focus { border-color: rgba(255, 255, 255, 0.45); }
+.toolbar-field input.wide { width: min(220px, 28vw); }
+.toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* 工作区：任务待选区与 5×5 表格 */
+.workspace {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 12px;
+  align-items: stretch;
+}
+/* 任务待选区：拖拽暂存任务 */
+.pool-panel {
+  flex: 0 0 26%;
+  min-width: 210px;
+  max-width: 340px;
+  display: flex;
+  flex-direction: column;
+  border: 2px solid #ffca28;
+  border-radius: 8px;
+  background: rgba(26, 26, 30, 0.95);
+  overflow: hidden;
+}
+.pool-header {
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255, 202, 40, 0.35);
+  flex-shrink: 0;
+}
+.pool-header h2 {
+  font-size: 15px;
+  font-weight: 700;
+  color: #ffe082;
+}
+.pool-tip {
+  padding: 8px 12px 0;
+  font-size: 12px;
+  color: #888;
+  line-height: 1.5;
+  flex-shrink: 0;
+}
+.pool-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pool-list::-webkit-scrollbar { width: 6px; }
+.pool-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 3px;
+}
+.pool-empty {
+  font-size: 12px;
+  color: #666;
+  text-align: center;
+  padding: 24px 8px;
+  line-height: 1.6;
+}
+.pool-item {
+  position: relative;
+  border: 1px solid rgba(255, 202, 40, 0.45);
+  border-radius: 6px;
+  background: var(--surface-mid);
+  padding: 8px 28px 8px 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  cursor: grab;
+  word-break: break-all;
+  transition: border-color 0.15s, opacity 0.15s;
+  flex-shrink: 0;
+}
+.pool-item-text { white-space: pre-wrap; }
+.pool-item.has-remark .pool-item-remark-badge { display: block; }
+.pool-item-remark-badge {
+  display: none;
+  position: absolute;
+  top: 5px;
+  right: 6px;
+  font-size: 9px;
+  font-weight: 700;
+  color: #80deea;
+  background: rgba(0, 131, 143, 0.35);
+  padding: 1px 4px;
+  border-radius: 3px;
+  pointer-events: none;
+}
+.pool-item:hover { border-color: #ffca28; }
+.pool-item.dragging { opacity: 0.45; cursor: grabbing; }
+.pool-item.drag-over {
+  border-color: var(--orange);
+  box-shadow: 0 0 0 2px rgba(251, 140, 0, 0.35);
+}
+.pool-actions {
+  display: flex;
+  gap: 6px;
+  padding: 8px 10px 10px;
+  flex-shrink: 0;
+}
+.pool-actions button {
+  flex: 1;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 6px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  color: #fff;
+}
+.btn-pool-draft { background: var(--green); }
+.btn-clear-pool { background: #546e7a; }
+/* 5×5 表格容器与格子样式 */
+.grid-panel {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+}
+.grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  grid-template-rows: repeat(5, 1fr);
+  gap: 8px;
+  width: min(100%, calc(100vh - 130px));
+  max-width: 100%;
+  max-height: 100%;
+  aspect-ratio: 1;
+  flex-shrink: 0;
+}
+.cell {
+  background: var(--surface);
+  border: 2px solid var(--border);
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  padding: 4px 3px 3px;
+  cursor: text;
+  transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+  overflow: hidden;
+  min-height: 0;
+  position: relative;
+}
+.cell-scroll {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  padding: 2px 1px;
+  margin-top: 2px;
+}
+.cell-scroll::-webkit-scrollbar { width: 6px; }
+.cell-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.28);
+  border-radius: 3px;
+}
+.cell-scroll::-webkit-scrollbar-track { background: transparent; }
+.cell:hover {
+  background: var(--surface-mid);
+  border-color: #666;
+}
+.cell.editing {
+  border-color: var(--orange);
+  box-shadow: 0 0 0 1px rgba(251, 140, 0, 0.35);
+}
+body.drag-mode-active .cell,
+body.pool-drag-active .cell {
+  cursor: grab;
+}
+body.drag-mode-active .cell.dragging {
+  opacity: 0.45;
+  cursor: grabbing;
+}
+body.drag-mode-active .cell.drag-over {
+  border-color: var(--orange);
+  box-shadow: 0 0 0 2px rgba(251, 140, 0, 0.4);
+}
+.cell-text {
+  width: 100%;
+  min-height: 1.2em;
+  font-size: clamp(11px, 1.6vw, 16px);
+  font-weight: 600;
+  line-height: 1.35;
+  text-align: center;
+  word-break: break-all;
+  white-space: pre-wrap;
+  color: var(--text);
+  text-shadow: 0 0 3px #000;
+  outline: none;
+  border: none;
+  background: transparent;
+}
+.cell-text:empty::before {
+  content: attr(data-placeholder);
+  color: rgba(255, 255, 255, 0.25);
+  pointer-events: none;
+}
+body.drag-mode-active .cell-text,
+body.remark-mode-active .cell-text {
+  pointer-events: none;
+  user-select: none;
+}
+body.remark-mode-active .cell {
+  cursor: pointer;
+}
+body.remark-mode-active .cell.remark-editing,
+body.remark-mode-active .cell:hover {
+  border-color: #00838f;
+}
+.cell.has-remark .cell-remark-badge {
+  display: block;
+}
+.cell-remark-badge {
+  display: none;
+  position: absolute;
+  top: 3px;
+  right: 5px;
+  font-size: 9px;
+  font-weight: 700;
+  color: #80deea;
+  background: rgba(0, 131, 143, 0.35);
+  padding: 1px 4px;
+  border-radius: 3px;
+  pointer-events: none;
+  z-index: 2;
+}
+.cell-index {
+  position: absolute;
+  top: 3px;
+  left: 5px;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.35);
+  pointer-events: none;
+  z-index: 1;
+}
+/* 通用弹窗与导出表单 */
+#remarkEditInput {
+  width: 100%;
+  min-height: 160px;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-mid);
+  color: var(--text);
+  padding: 10px;
+  font-size: 14px;
+  line-height: 1.55;
+  font-family: inherit;
+  outline: none;
+}
+#remarkEditInput:focus { border-color: #00838f; }
+
+.modal-mask {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  z-index: 100;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.modal-mask.show { display: flex; }
+.modal {
+  width: min(420px, 100%);
+  background: #1e1e22;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.modal-title { font-size: 15px; font-weight: 700; }
+.modal-sub { font-size: 12px; color: #888; }
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.modal-actions button {
+  border: none;
+  border-radius: 6px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  color: #fff;
+}
+.modal-cancel { background: #546e7a; }
+.modal-save { background: var(--green); }
+.modal-wide { width: min(560px, 100%); }
+.export-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.export-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.export-row label {
+  flex: 0 0 56px;
+  font-size: 13px;
+  color: #ccc;
+}
+.export-row input,
+.export-row textarea {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-mid);
+  color: var(--text);
+  padding: 8px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+}
+.export-row input:focus,
+.export-row textarea:focus { border-color: var(--blue); }
+.export-row-labels {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.export-row-label-item {
+  display: grid;
+  grid-template-columns: 36px 1fr;
+  gap: 8px;
+  align-items: center;
+}
+.export-row-label-item .head {
+  font-size: 12px;
+  color: #888;
+  text-align: right;
+}
+.export-row-label-item input {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-mid);
+  color: var(--text);
+  padding: 6px 8px;
+  font-size: 12px;
+  outline: none;
+}
+.export-section-title {
+  font-size: 12px;
+  color: #888;
+  margin-top: 2px;
+}
+/* 操作提示条 */
+.toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: rgba(30, 30, 34, 0.96);
+  border: 1px solid var(--border);
+  color: #fff;
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-size: 13px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s, transform 0.25s;
+  z-index: 200;
+}
+.toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+/* 下载弹窗：改文件名、选格式、复制文字 */
+.download-fallback {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 210;
+  background: rgba(0, 0, 0, 0.72);
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.download-fallback.show { display: flex; }
+.download-fallback-box {
+  width: min(360px, 100%);
+  background: #1e1e22;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.download-fallback-box.wide {
+  width: min(560px, 100%);
+}
+.download-text-preview {
+  display: none;
+  flex-direction: column;
+  gap: 8px;
+}
+.download-text-preview.show {
+  display: flex;
+}
+.download-text-content {
+  width: 100%;
+  min-height: 180px;
+  max-height: 38vh;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-mid);
+  color: var(--text);
+  padding: 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  font-family: Consolas, 'Microsoft YaHei', monospace;
+  outline: none;
+}
+.download-text-content:focus { border-color: var(--blue); }
+.download-copy-text {
+  border: none;
+  border-radius: 6px;
+  padding: 9px 14px;
+  background: var(--blue);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.download-fallback-title { font-size: 15px; font-weight: 700; }
+.download-fallback-sub { font-size: 12px; color: #888; line-height: 1.5; }
+.download-fallback-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.download-fallback-label {
+  font-size: 12px;
+  color: #aaa;
+}
+.download-fallback-base {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-mid);
+  color: var(--text);
+  padding: 9px 10px;
+  font-size: 13px;
+  outline: none;
+}
+.download-fallback-base:focus { border-color: var(--green); }
+.download-fallback-ext-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.download-ext-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-mid);
+  font-size: 12px;
+  color: #ccc;
+  cursor: pointer;
+  user-select: none;
+  transition: border-color 0.15s, background 0.15s;
+}
+.download-ext-option:has(input:checked) {
+  border-color: var(--green);
+  background: rgba(0, 137, 123, 0.18);
+  color: #fff;
+}
+.download-ext-option input {
+  accent-color: var(--green);
+  margin: 0;
+}
+.download-fallback-share {
+  display: none;
+  width: 100%;
+  text-align: center;
+  padding: 12px 14px;
+  border: none;
+  border-radius: 8px;
+  background: var(--blue);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.download-fallback-share.show { display: block; }
+.download-fallback-link {
+  display: block;
+  text-align: center;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: var(--green);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
+  word-break: break-all;
+}
+.download-fallback-link.secondary {
+  background: #546e7a;
+  font-size: 13px;
+  padding: 10px 14px;
+}
+.download-fallback-close {
+  border: none;
+  border-radius: 6px;
+  padding: 8px 14px;
+  background: #546e7a;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+/* 导入文字：粘贴区与选文件 */
+#importTextInput {
+  width: 100%;
+  min-height: 200px;
+  max-height: 45vh;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-mid);
+  color: var(--text);
+  padding: 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  font-family: inherit;
+  outline: none;
+}
+#importTextInput:focus { border-color: #ef6c00; }
+.import-file-zone {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  padding: 10px;
+  border: 1px dashed rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.22);
+}
+#importTextFile.import-file-input {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.import-file-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 6px;
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  color: #fff;
+  background: #ef6c00;
+  transition: filter 0.15s, transform 0.15s;
+  user-select: none;
+}
+.import-file-btn:hover {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+}
+.import-file-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-mid);
+}
+.import-file-label {
+  font-size: 11px;
+  color: #888;
+  letter-spacing: 0.02em;
+}
+.import-file-name {
+  font-size: 13px;
+  color: #e0e0e0;
+  word-break: break-all;
+  line-height: 1.35;
+}
+.import-file-name.is-empty {
+  color: #666;
+}
+
+/* 手机端：隐藏草稿栏与待选区 */
+@media (max-width: 768px) {
+  html, body {
+    height: auto;
+    min-height: 100%;
+    min-height: 100dvh;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+  body {
+    flex-direction: column;
+    padding: 10px 10px calc(36px + env(safe-area-inset-bottom, 0px));
+    gap: 0;
+  }
+  .draft-panel,
+  .pool-panel {
+    display: none !important;
+  }
+  .main-panel {
+    flex: 1;
+    width: 100%;
+    min-width: 0;
+    min-height: calc(100dvh - 20px);
+    gap: 10px;
+  }
+  .toolbar {
+    padding: 8px 10px;
+    gap: 8px;
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .toolbar-label {
+    margin-right: 0;
+    font-size: 12px;
+  }
+  .toolbar-fields {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+  }
+  .toolbar-field {
+    width: 100%;
+  }
+  .toolbar-field label {
+    flex: 0 0 48px;
+  }
+  .toolbar-field input,
+  .toolbar-field input.wide {
+    width: 100%;
+    flex: 1;
+    min-width: 0;
+  }
+  .toolbar-actions {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 6px;
+  }
+  .toolbar-actions button {
+    width: 100%;
+    padding: 9px 6px;
+    font-size: 12px;
+    margin: 0;
+  }
+  .workspace {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .grid-panel {
+    flex: 1;
+    min-height: 280px;
+    padding: 4px 0 8px;
+    align-items: center;
+    justify-content: center;
+  }
+  .grid {
+    width: min(calc(100vw - 22px), calc(100dvh - 240px));
+    max-width: 100%;
+    aspect-ratio: 1;
+  }
+  .cell {
+    padding: 3px 2px 2px;
+  }
+  .cell-text {
+    font-size: clamp(10px, 2.6vw, 13px);
+  }
+  .cell-index {
+    font-size: 9px;
+  }
+  .app-footer {
+    right: max(10px, env(safe-area-inset-right, 0px));
+    bottom: max(8px, env(safe-area-inset-bottom, 0px));
+    font-size: 11px;
+  }
+  .modal-mask {
+    padding: 12px;
+    align-items: flex-end;
+  }
+  .modal,
+  .modal.modal-wide {
+    width: 100%;
+    max-height: 88dvh;
+    overflow-y: auto;
+    border-radius: 10px 10px 0 0;
+  }
+  .toast {
+    bottom: calc(28px + env(safe-area-inset-bottom, 0px));
+    max-width: calc(100vw - 32px);
+    text-align: center;
+  }
+}
+</style>
+</head>
+<body>
+
+<aside class="draft-panel">
+  <div class="draft-header">
+    <h2>草稿栏</h2>
+  </div>
+  <div class="draft-body">
+    <p class="draft-tip">自动保存。可点「从草稿填入」导入待选区。</p>
+    <textarea id="draftInput"></textarea>
+    <div class="draft-actions">
+      <button type="button" class="btn-clear-draft" id="btnClearDraft">清空草稿</button>
+    </div>
+  </div>
+</aside>
+
+<main class="main-panel">
+  <div class="toolbar">
+    <span class="toolbar-label">功能区</span>
+    <div class="toolbar-fields">
+      <div class="toolbar-field">
+        <label for="tableNameInput">表名</label>
+        <input type="text" id="tableNameInput" class="wide">
+      </div>
+      <div class="toolbar-field">
+        <label for="tableAuthorInput">表作者</label>
+        <input type="text" id="tableAuthorInput" class="wide">
+      </div>
+    </div>
+    <div class="toolbar-actions">
+      <button type="button" class="btn-back-tools" id="btnBackTools" title="返回 BingoTools">返回 BingoTools</button>
+      <button type="button" class="btn-drag-mode" id="btnDragMode" title="开启后可在表格内拖拽交换格子">拖拽换位</button>
+      <button type="button" class="btn-remark-mode" id="btnRemarkMode" title="开启后点击格子编辑详细备注">备注模式</button>
+      <button type="button" class="btn-save-table" id="btnSaveTable">保存表格</button>
+      <button type="button" class="btn-load-table" id="btnLoadTable">读取存档</button>
+      <button type="button" class="btn-export-excel" id="btnExportExcel">导出Excel</button>
+      <button type="button" class="btn-export-text" id="btnExportText">导出文字</button>
+      <button type="button" class="btn-import-text" id="btnImportText">导入文字</button>
+      <button type="button" class="btn-clear-grid" id="btnClearGrid">清空表格</button>
+    </div>
+  </div>
+
+  <div class="workspace">
+    <aside class="pool-panel">
+      <div class="pool-header">
+        <h2>任务待选区</h2>
+      </div>
+      <p class="pool-tip">把任务拖到这里暂存，再拖到右侧表格排版。可与草稿栏、表格互拖，备注会随任务一起移动。</p>
+      <div class="pool-list" id="poolList"></div>
+      <div class="pool-actions">
+        <button type="button" class="btn-pool-draft" id="btnPoolFromDraft">从草稿填入</button>
+        <button type="button" class="btn-clear-pool" id="btnClearPool">清空待选区</button>
+      </div>
+    </aside>
+    <div class="grid-panel">
+      <div class="grid" id="bingoGrid"></div>
+    </div>
+  </div>
+</main>
+
+<div class="modal-mask" id="saveTableModal">
+  <div class="modal">
+    <div class="modal-title">保存表格到本地</div>
+    <div class="modal-sub">将当前 5×5 表格存入浏览器缓存，不会下载文件。同名存档将覆盖。</div>
+    <div class="export-form">
+      <div class="export-row">
+        <label for="saveArchiveName">存档名</label>
+        <input type="text" id="saveArchiveName" placeholder="必填">
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button type="button" class="modal-cancel" id="btnSaveTableCancel">取消</button>
+      <button type="button" class="modal-save" id="btnSaveTableConfirm">确认保存</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-mask" id="loadTableModal">
+  <div class="modal modal-wide">
+    <div class="modal-title">读取本地存档</div>
+    <div class="modal-sub">从浏览器缓存加载已保存的表格。</div>
+    <div class="saved-list" id="savedList"></div>
+    <div class="modal-actions">
+      <button type="button" class="modal-cancel" id="btnLoadTableClose">关闭</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-mask" id="exportModal">
+  <div class="modal modal-wide">
+    <div class="modal-title" id="exportModalTitle">导出设置</div>
+    <div class="modal-sub" id="exportModalSub">请确认表名与表作者，Excel 导出可额外设置行标题与备注。</div>
+    <div class="export-form">
+      <div class="export-row">
+        <label for="exportTableName">表名</label>
+        <input type="text" id="exportTableName" placeholder="必填">
+      </div>
+      <div class="export-row">
+        <label for="exportTableAuthor">表作者</label>
+        <input type="text" id="exportTableAuthor" placeholder="必填">
+      </div>
+      <div id="exportExcelExtra">
+        <div class="export-section-title">行标题（Excel 第一列）</div>
+        <div class="export-row-labels">
+          <div class="export-row-label-item"><span class="head">1行</span><input type="text" id="rowLabel1" placeholder="一阶段 (2)"></div>
+          <div class="export-row-label-item"><span class="head">2行</span><input type="text" id="rowLabel2" placeholder="二阶段 (2)"></div>
+          <div class="export-row-label-item"><span class="head">3行</span><input type="text" id="rowLabel3" placeholder="三阶段 (4)"></div>
+          <div class="export-row-label-item"><span class="head">4行</span><input type="text" id="rowLabel4" placeholder="四阶段 (4)"></div>
+          <div class="export-row-label-item"><span class="head">5行</span><input type="text" id="rowLabel5" placeholder="五阶段 (6)"></div>
+        </div>
+        <p class="export-section-title" style="margin:0;line-height:1.5;">备注请在「备注模式」下为各格填写，导出时自动汇总到表格下方。</p>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button type="button" class="modal-cancel" id="btnExportCancel">取消</button>
+      <button type="button" class="modal-save" id="btnExportConfirm">确认导出</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-mask" id="remarkModal">
+  <div class="modal modal-wide">
+    <div class="modal-title" id="remarkModalTitle">单元格备注</div>
+    <div class="modal-sub" id="remarkModalSub">格式将导出为「行-列: 说明」，例如 1-1: 说明文字</div>
+    <textarea id="remarkEditInput" placeholder="输入该格的详细备注说明…"></textarea>
+    <div class="modal-actions">
+      <button type="button" class="modal-cancel" id="btnRemarkCancel">取消</button>
+      <button type="button" class="modal-save" id="btnRemarkSave">保存备注</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-mask" id="importTextModal">
+  <div class="modal modal-wide">
+    <div class="modal-title">导入文字</div>
+    <div class="modal-sub">粘贴「导出文字」的内容，或选择 .txt 文件，将覆盖当前 5×5 格子正文与备注。</div>
+    <textarea id="importTextInput" placeholder="粘贴导出文字内容，或点击下方选择文件…"></textarea>
+    <div class="import-file-zone">
+      <input type="file" id="importTextFile" class="import-file-input" accept=".txt,text/plain">
+      <label for="importTextFile" class="import-file-btn" id="btnImportPickFile">选择 .txt 文件</label>
+      <div class="import-file-meta">
+        <span class="import-file-label">已选文件</span>
+        <span class="import-file-name is-empty" id="importFileName">未选择文件</span>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button type="button" class="modal-cancel" id="btnImportTextCancel">取消</button>
+      <button type="button" class="modal-save" id="btnImportTextConfirm">确认导入</button>
+    </div>
+  </div>
+</div>
+
+<div class="download-fallback" id="downloadFallback">
+  <div class="download-fallback-box" id="downloadFallbackBox">
+    <div class="download-fallback-title" id="downloadFallbackTitle">文件已生成</div>
+    <p class="download-fallback-sub" id="downloadFallbackTip">可编辑文件名与格式，确认后点击下方按钮下载。</p>
+    <div class="download-text-preview" id="downloadTextPreview">
+      <label class="download-fallback-label" for="downloadTextContent">文字版（可直接复制）</label>
+      <textarea id="downloadTextContent" class="download-text-content" readonly></textarea>
+      <button type="button" class="download-copy-text" id="btnCopyTextContent">复制全部</button>
+    </div>
+    <div class="download-fallback-edit">
+      <label class="download-fallback-label" for="downloadFallbackBase">文件名</label>
+      <input type="text" id="downloadFallbackBase" class="download-fallback-base" autocomplete="off">
+      <div class="download-fallback-ext-group" id="downloadFallbackExtGroup">
+        <label class="download-ext-option" id="downloadExtXlsxOption"><input type="radio" name="downloadExt" value=".xlsx" checked> .xlsx</label>
+        <label class="download-ext-option" id="downloadExtXlsOption"><input type="radio" name="downloadExt" value=".xls"> .xls</label>
+        <label class="download-ext-option" id="downloadExtTxtOption"><input type="radio" name="downloadExt" value=".txt"> .txt</label>
+      </div>
+    </div>
+    <button type="button" class="download-fallback-share" id="downloadFallbackShare">保存到文件</button>
+    <a class="download-fallback-link" id="downloadFallbackLink" href="#" download>下载文件</a>
+    <button type="button" class="download-fallback-close" id="downloadFallbackClose">关闭</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<div class="app-footer">form 天启圣言Shc</div>
+
+<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.min.js"></script>
+<script>
+(function () {
+  /* 常量与 DOM 引用 */
+  var GRID_SIZE = 25;
+  var TEXT_SECTION_GRID = '===BINGO-GRID===';
+  var TEXT_SECTION_REMARKS = '===BINGO-REMARKS===';
+  var STORAGE_KEY = 'bingo-maker-v1';
+  var STORAGE_SAVED_KEY = 'bingo-maker-saved-v1';
+  var DEFAULT_ROW_LABELS = ['一阶段 (2)', '二阶段 (2)', '三阶段 (4)', '四阶段 (4)', '五阶段 (6)'];
+  var gridEl = document.getElementById('bingoGrid');
+  var poolListEl = document.getElementById('poolList');
+  var draftInput = document.getElementById('draftInput');
+  var saveTableModal = document.getElementById('saveTableModal');
+  var loadTableModal = document.getElementById('loadTableModal');
+  var saveArchiveName = document.getElementById('saveArchiveName');
+  var savedListEl = document.getElementById('savedList');
+  var tableNameInput = document.getElementById('tableNameInput');
+  var tableAuthorInput = document.getElementById('tableAuthorInput');
+  var exportModal = document.getElementById('exportModal');
+  var exportModalTitle = document.getElementById('exportModalTitle');
+  var exportModalSub = document.getElementById('exportModalSub');
+  var exportTableName = document.getElementById('exportTableName');
+  var exportTableAuthor = document.getElementById('exportTableAuthor');
+  var exportExcelExtra = document.getElementById('exportExcelExtra');
+  var btnDragMode = document.getElementById('btnDragMode');
+  var btnRemarkMode = document.getElementById('btnRemarkMode');
+  var remarkModal = document.getElementById('remarkModal');
+  var remarkModalTitle = document.getElementById('remarkModalTitle');
+  var remarkEditInput = document.getElementById('remarkEditInput');
+  var toastEl = document.getElementById('toast');
+  var downloadFallback = document.getElementById('downloadFallback');
+  var downloadFallbackBox = document.getElementById('downloadFallbackBox');
+  var downloadFallbackTitle = document.getElementById('downloadFallbackTitle');
+  var downloadFallbackLink = document.getElementById('downloadFallbackLink');
+  var downloadFallbackTip = document.getElementById('downloadFallbackTip');
+  var downloadFallbackBase = document.getElementById('downloadFallbackBase');
+  var downloadTextPreview = document.getElementById('downloadTextPreview');
+  var downloadTextContent = document.getElementById('downloadTextContent');
+  var downloadFallbackShare = document.getElementById('downloadFallbackShare');
+  var downloadExtXlsxOption = document.getElementById('downloadExtXlsxOption');
+  var downloadExtXlsOption = document.getElementById('downloadExtXlsOption');
+  var downloadExtTxtOption = document.getElementById('downloadExtTxtOption');
+  var activeDownloadUrl = '';
+  var activeDownloadBlob = null;
+  var activeDownloadFilename = '';
+  var activeDownloadType = '';
+  var activeExcelWb = null;
+  var activeExcelMeta = null;
+  var cells = [];
+  var poolTasks = [];
+  var dragMode = false;
+  var remarkMode = false;
+  var dragSource = null;
+  var editingRemarkIndex = -1;
+  var pendingExportType = '';
+
+  /* 提示与防抖保存 */
+  function showToast(msg) {
+    toastEl.textContent = msg;
+    toastEl.classList.add('show');
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(function () {
+      toastEl.classList.remove('show');
+    }, 2200);
+  }
+
+  var saveStateTimer = null;
+
+  function flushPendingSave() {
+    if (saveStateTimer) {
+      clearTimeout(saveStateTimer);
+      saveStateTimer = null;
+    }
+    saveState();
+  }
+
+  function saveStateDebounced() {
+    clearTimeout(saveStateTimer);
+    saveStateTimer = setTimeout(function () {
+      saveStateTimer = null;
+      saveState();
+    }, 80);
+  }
+
+  /* 格子行列坐标换算 */
+  function indexToCoord(index) {
+    var r = Math.floor(index / 5) + 1;
+    var c = (index % 5) + 1;
+    return r + '-' + c;
+  }
+
+  function coordToIndex(coord) {
+    var m = String(coord).trim().match(/^(\d+)\s*[-–]\s*(\d+)$/);
+    if (!m) return -1;
+    var r = parseInt(m[1], 10) - 1;
+    var c = parseInt(m[2], 10) - 1;
+    if (r < 0 || r > 4 || c < 0 || c > 4) return -1;
+    return r * 5 + c;
+  }
+
+  /* 格子正文读写 */
+  function getCellTextEl(cell) {
+    return cell ? cell.querySelector('.cell-text') : null;
+  }
+
+  /* 格子备注读写与导出行 */
+  function getCellRemarkStore(cell) {
+    return cell ? cell.querySelector('.cell-remark-store') : null;
+  }
+
+  function getCellRemarks() {
+    return cells.map(function (c) {
+      var store = getCellRemarkStore(c);
+      return store ? store.value : '';
+    });
+  }
+
+  function getCellRemark(index) {
+    var store = getCellRemarkStore(cells[index]);
+    return store ? store.value : '';
+  }
+
+  function setCellRemark(index, text) {
+    var cell = cells[index];
+    if (!cell) return;
+    var store = getCellRemarkStore(cell);
+    if (!store) return;
+    store.value = text || '';
+    cell.classList.toggle('has-remark', !!text.trim());
+  }
+
+  function syncCellRemarkBadge(cell) {
+    var store = getCellRemarkStore(cell);
+    cell.classList.toggle('has-remark', !!(store && store.value.trim()));
+  }
+
+  function buildRemarksExportText() {
+    var lines = [];
+    getCellRemarks().forEach(function (text, i) {
+      var t = (text || '').trim();
+      if (t) lines.push(indexToCoord(i) + ': ' + t);
+    });
+    return lines.join('\n');
+  }
+
+  function getRemarkExportLines() {
+    var lines = [];
+    getCellRemarks().forEach(function (text, i) {
+      var t = (text || '').trim();
+      if (t) lines.push(indexToCoord(i) + ': ' + t.replace(/\r?\n/g, ' '));
+    });
+    return lines;
+  }
+
+  function readCellText(textEl, forSave) {
+    if (!textEl) return '';
+    var raw = (textEl.innerText || textEl.textContent || '').replace(/\r/g, '');
+    return forSave ? raw : raw.trim();
+  }
+
+  function getCellTexts(forSave) {
+    return cells.map(function (c) {
+      return readCellText(getCellTextEl(c), forSave);
+    });
+  }
+
+  function setCellText(index, text) {
+    var cell = cells[index];
+    if (!cell) return;
+    var textEl = getCellTextEl(cell);
+    if (!textEl) return;
+    textEl.textContent = text || '';
+    cell.classList.toggle('empty', !text);
+  }
+
+  function syncCellEmpty(cell) {
+    var text = readCellText(getCellTextEl(cell));
+    cell.classList.toggle('empty', !text);
+    return text;
+  }
+
+  /* Excel 左侧阶段行标题 */
+  function getRowLabels() {
+    var labels = [];
+    for (var i = 1; i <= 5; i++) {
+      var el = document.getElementById('rowLabel' + i);
+      labels.push((el && el.value.trim()) || DEFAULT_ROW_LABELS[i - 1]);
+    }
+    return labels;
+  }
+
+  function setRowLabels(labels) {
+    for (var i = 0; i < 5; i++) {
+      var el = document.getElementById('rowLabel' + (i + 1));
+      if (el) el.value = (labels && labels[i]) || DEFAULT_ROW_LABELS[i];
+    }
+  }
+
+  /* 导出文件名拼接与过滤 */
+  function sanitizeFilename(name) {
+    return String(name)
+      .replace(/[\\/:*?"<>|]/g, '_')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function buildExportFilename(ext) {
+    var tableName = exportTableName.value.trim();
+    var tableAuthor = exportTableAuthor.value.trim();
+    var base = sanitizeFilename(tableName + ' - ' + tableAuthor);
+    return (base || 'bingo-table') + ext;
+  }
+
+  /* localStorage 当前编辑状态 */
+  function saveState() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        draft: draftInput.value,
+        grid: getCellTexts(true),
+        remarks: getCellRemarks(),
+        pool: poolTasks.slice(),
+        tableName: tableNameInput.value,
+        tableAuthor: tableAuthorInput.value,
+        rowLabels: getRowLabels(),
+        dragMode: dragMode,
+        remarkMode: remarkMode
+      }));
+    } catch (e) {}
+  }
+
+  function loadState() {
+    try {
+      var raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) {
+        setRowLabels(DEFAULT_ROW_LABELS);
+        return;
+      }
+      var data = JSON.parse(raw);
+      if (typeof data.draft === 'string') draftInput.value = data.draft;
+      if (typeof data.tableName === 'string') tableNameInput.value = data.tableName;
+      if (typeof data.tableAuthor === 'string') tableAuthorInput.value = data.tableAuthor;
+      if (Array.isArray(data.rowLabels)) setRowLabels(data.rowLabels);
+      else setRowLabels(DEFAULT_ROW_LABELS);
+      if (Array.isArray(data.grid)) {
+        data.grid.slice(0, GRID_SIZE).forEach(function (txt, i) {
+          setCellText(i, txt);
+        });
+      }
+      if (Array.isArray(data.remarks)) {
+        data.remarks.slice(0, GRID_SIZE).forEach(function (txt, i) {
+          setCellRemark(i, txt);
+        });
+      } else if (typeof data.notes === 'string' && data.notes.trim()) {
+        data.notes.split(/\r?\n/).forEach(function (line) {
+          var m = line.match(/^(\d+)-(\d+)\s*[:：]\s*(.+)$/);
+          if (!m) return;
+          var r = parseInt(m[1], 10) - 1;
+          var c = parseInt(m[2], 10) - 1;
+          if (r >= 0 && r < 5 && c >= 0 && c < 5) setCellRemark(r * 5 + c, m[3].trim());
+        });
+      }
+      if (Array.isArray(data.pool)) {
+        poolTasks = normalizePoolList(data.pool);
+        renderPool();
+      }
+      if (data.dragMode) setDragMode(true, true);
+      else if (data.remarkMode) setRemarkMode(true, true);
+    } catch (e) {
+      setRowLabels(DEFAULT_ROW_LABELS);
+    }
+  }
+
+  /* 本地命名存档列表 */
+  function getSavedTables() {
+    try {
+      var raw = localStorage.getItem(STORAGE_SAVED_KEY);
+      var list = raw ? JSON.parse(raw) : [];
+      return Array.isArray(list) ? list : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function writeSavedTables(list) {
+    localStorage.setItem(STORAGE_SAVED_KEY, JSON.stringify(list));
+  }
+
+  function formatSavedTime(ts) {
+    var d = new Date(ts);
+    var p = function (n) { return n < 10 ? '0' + n : String(n); };
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' +
+      p(d.getHours()) + ':' + p(d.getMinutes());
+  }
+
+  function applyTableSnapshot(snapshot) {
+    if (!snapshot) return;
+    if (typeof snapshot.tableName === 'string') tableNameInput.value = snapshot.tableName;
+    if (typeof snapshot.tableAuthor === 'string') tableAuthorInput.value = snapshot.tableAuthor;
+    if (Array.isArray(snapshot.rowLabels)) setRowLabels(snapshot.rowLabels);
+    if (Array.isArray(snapshot.grid)) {
+      snapshot.grid.slice(0, GRID_SIZE).forEach(function (txt, i) {
+        setCellText(i, txt);
+      });
+    }
+    if (Array.isArray(snapshot.remarks)) {
+      snapshot.remarks.slice(0, GRID_SIZE).forEach(function (txt, i) {
+        setCellRemark(i, txt);
+      });
+    }
+    if (Array.isArray(snapshot.pool)) {
+      poolTasks = normalizePoolList(snapshot.pool);
+      renderPool();
+    }
+    saveState();
+  }
+
+  function openSaveTableModal() {
+    saveArchiveName.value = tableNameInput.value.trim();
+    saveTableModal.classList.add('show');
+    saveArchiveName.focus();
+    saveArchiveName.select();
+  }
+
+  function closeSaveTableModal() {
+    saveTableModal.classList.remove('show');
+  }
+
+  function confirmSaveTable() {
+    var name = saveArchiveName.value.trim();
+    if (!name) {
+      showToast('请填写存档名');
+      saveArchiveName.focus();
+      return;
+    }
+    var list = getSavedTables();
+    var entry = {
+      id: Date.now(),
+      name: name,
+      tableName: tableNameInput.value.trim(),
+      tableAuthor: tableAuthorInput.value.trim(),
+      grid: getCellTexts(),
+      remarks: getCellRemarks(),
+      pool: poolTasks.slice(),
+      rowLabels: getRowLabels(),
+      savedAt: Date.now()
+    };
+    var existIdx = -1;
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].name === name) { existIdx = i; break; }
+    }
+    if (existIdx >= 0) list[existIdx] = entry;
+    else list.unshift(entry);
+    writeSavedTables(list);
+    tableNameInput.value = name;
+    saveState();
+    closeSaveTableModal();
+    showToast(existIdx >= 0 ? '已覆盖存档「' + name + '」' : '已保存到本地「' + name + '」');
+  }
+
+  function renderSavedList() {
+    var list = getSavedTables();
+    savedListEl.innerHTML = '';
+    if (!list.length) {
+      savedListEl.innerHTML = '<div class="saved-empty">暂无本地存档</div>';
+      return;
+    }
+    list.forEach(function (item) {
+      var row = document.createElement('div');
+      row.className = 'saved-item';
+      var info = document.createElement('div');
+      info.className = 'saved-item-info';
+      var title = document.createElement('div');
+      title.className = 'saved-item-name';
+      title.textContent = item.name || '未命名';
+      var meta = document.createElement('div');
+      meta.className = 'saved-item-meta';
+      var author = item.tableAuthor ? ' · ' + item.tableAuthor : '';
+      meta.textContent = formatSavedTime(item.savedAt || item.id) + author;
+      info.appendChild(title);
+      info.appendChild(meta);
+      var actions = document.createElement('div');
+      actions.className = 'saved-item-actions';
+      var btnLoad = document.createElement('button');
+      btnLoad.type = 'button';
+      btnLoad.className = 'btn-saved-load';
+      btnLoad.textContent = '加载';
+      btnLoad.addEventListener('click', function () {
+        applyTableSnapshot(item);
+        loadTableModal.classList.remove('show');
+        showToast('已加载「' + (item.name || '未命名') + '」');
+      });
+      var btnDel = document.createElement('button');
+      btnDel.type = 'button';
+      btnDel.className = 'btn-saved-del';
+      btnDel.textContent = '删除';
+      btnDel.addEventListener('click', function () {
+        if (!confirm('确定删除存档「' + (item.name || '未命名') + '」？')) return;
+        var next = getSavedTables().filter(function (x) { return x.id !== item.id; });
+        writeSavedTables(next);
+        renderSavedList();
+        showToast('已删除存档');
+      });
+      actions.appendChild(btnLoad);
+      actions.appendChild(btnDel);
+      row.appendChild(info);
+      row.appendChild(actions);
+      savedListEl.appendChild(row);
+    });
+  }
+
+  function openLoadTableModal() {
+    renderSavedList();
+    loadTableModal.classList.add('show');
+  }
+
+  /* 拖拽换位模式与备注模式切换 */
+  function updateCellEditability() {
+    cells.forEach(function (cell) {
+      var textEl = getCellTextEl(cell);
+      if (textEl) textEl.contentEditable = (!dragMode && !remarkMode) ? 'true' : 'false';
+      cell.draggable = !remarkMode;
+    });
+  }
+
+  function setDragMode(on, silent) {
+    dragMode = !!on;
+    if (dragMode) setRemarkMode(false, true);
+    if (dragMode) {
+      var active = document.activeElement;
+      if (active && active.classList && active.classList.contains('cell-text')) active.blur();
+    }
+    document.body.classList.toggle('drag-mode-active', dragMode);
+    btnDragMode.classList.toggle('active', dragMode);
+    btnDragMode.textContent = dragMode ? '拖拽换位：开' : '拖拽换位';
+    cells.forEach(function (cell) {
+      if (!dragMode) {
+        cell.classList.remove('dragging', 'drag-over');
+      }
+    });
+    updateCellEditability();
+    if (!silent) saveState();
+  }
+
+  function setRemarkMode(on, silent) {
+    remarkMode = !!on;
+    if (remarkMode) setDragMode(false, true);
+    if (remarkMode) {
+      var active = document.activeElement;
+      if (active && active.classList && active.classList.contains('cell-text')) active.blur();
+    }
+    document.body.classList.toggle('remark-mode-active', remarkMode);
+    btnRemarkMode.classList.toggle('active', remarkMode);
+    btnRemarkMode.textContent = remarkMode ? '备注模式：开' : '备注模式';
+    updateCellEditability();
+    if (!silent) saveState();
+    if (!silent && remarkMode) showToast('备注模式已开启，点击格子编辑备注');
+  }
+
+  /* 备注编辑弹窗 */
+  function openRemarkEdit(index) {
+    editingRemarkIndex = index;
+    remarkModalTitle.textContent = '备注 ' + indexToCoord(index);
+    remarkEditInput.value = getCellRemark(index);
+    remarkModal.classList.add('show');
+    remarkEditInput.focus();
+    cells[index].classList.add('remark-editing');
+  }
+
+  function closeRemarkEdit(save) {
+    if (editingRemarkIndex >= 0) {
+      if (save) setCellRemark(editingRemarkIndex, remarkEditInput.value.trim());
+      cells[editingRemarkIndex].classList.remove('remark-editing');
+    }
+    editingRemarkIndex = -1;
+    remarkModal.classList.remove('show');
+    if (save) saveState();
+  }
+
+  /* 表格内两格交换正文与备注 */
+  function swapCells(indexA, indexB) {
+    if (indexA === indexB) return;
+    var texts = getCellTexts();
+    var remarks = getCellRemarks();
+    var tmp = texts[indexA];
+    setCellText(indexA, texts[indexB]);
+    setCellText(indexB, tmp);
+    var tmpR = remarks[indexA];
+    setCellRemark(indexA, remarks[indexB]);
+    setCellRemark(indexB, tmpR);
+    saveState();
+    showToast('已交换 #' + (indexA + 1) + ' 与 #' + (indexB + 1));
+  }
+
+  /* 拖拽数据编码与 UI 清理 */
+  function encodeDrag(type, index) {
+    return type + ':' + index;
+  }
+
+  function parseDrag(raw) {
+    if (!raw) return null;
+    var parts = String(raw).split(':');
+    if (parts.length !== 2) return null;
+    var index = parseInt(parts[1], 10);
+    if (parts[0] !== 'grid' && parts[0] !== 'pool') return null;
+    if (isNaN(index) || index < 0) return null;
+    return { type: parts[0], index: index };
+  }
+
+  function clearDragUi() {
+    document.body.classList.remove('pool-drag-active');
+    cells.forEach(function (c) {
+      c.classList.remove('dragging', 'drag-over');
+    });
+    poolListEl.querySelectorAll('.pool-item').forEach(function (el) {
+      el.classList.remove('dragging', 'drag-over');
+    });
+    dragSource = null;
+  }
+
+  /* 任务待选区：数据结构、渲染、草稿填入 */
+  function normalizePoolItem(item) {
+    if (item == null) return { text: '', remark: '' };
+    if (typeof item === 'string') return { text: item, remark: '' };
+    return {
+      text: item.text != null ? String(item.text) : '',
+      remark: item.remark != null ? String(item.remark) : ''
+    };
+  }
+
+  function normalizePoolList(list) {
+    if (!Array.isArray(list)) return [];
+    return list.map(function (item) {
+      var normalized = normalizePoolItem(item);
+      return normalized.text.trim() ? normalized : null;
+    }).filter(Boolean);
+  }
+
+  function getPoolText(index) {
+    return normalizePoolItem(poolTasks[index]).text;
+  }
+
+  function getPoolRemark(index) {
+    return normalizePoolItem(poolTasks[index]).remark;
+  }
+
+  function renderPool() {
+    poolListEl.innerHTML = '';
+    if (!poolTasks.length) {
+      poolListEl.innerHTML = '<div class="pool-empty">暂无任务。可从草稿填入，或把表格格子拖到这里。</div>';
+      return;
+    }
+    poolTasks.forEach(function (raw, i) {
+      var data = normalizePoolItem(raw);
+      var item = document.createElement('div');
+      item.className = 'pool-item' + (data.remark.trim() ? ' has-remark' : '');
+      item.draggable = true;
+      item.dataset.poolIndex = String(i);
+
+      var textEl = document.createElement('div');
+      textEl.className = 'pool-item-text';
+      textEl.textContent = data.text;
+
+      var badge = document.createElement('span');
+      badge.className = 'pool-item-remark-badge';
+      badge.textContent = '备';
+
+      item.appendChild(textEl);
+      item.appendChild(badge);
+      bindPoolItemEvents(item, i);
+      poolListEl.appendChild(item);
+    });
+  }
+
+  function fillPoolFromDraft() {
+    var lines = draftInput.value
+      .split(/\r?\n/)
+      .map(function (s) { return s.trim(); })
+      .filter(Boolean);
+    if (!lines.length) {
+      showToast('草稿栏为空');
+      return;
+    }
+    poolTasks = lines.map(function (line) {
+      return { text: line, remark: '' };
+    });
+    renderPool();
+    saveState();
+    showToast('已从草稿填入 ' + lines.length + ' 条任务');
+  }
+
+  /* 待选区与表格互拖及池内排序 */
+  function movePoolToGrid(poolIndex, gridIndex) {
+    var poolItem = normalizePoolItem(poolTasks[poolIndex]);
+    var task = poolItem.text.trim();
+    if (!task) return;
+    var gridText = readCellText(getCellTextEl(cells[gridIndex])).trim();
+    var gridRemark = getCellRemark(gridIndex);
+    var cell = cells[gridIndex];
+    if (gridText) {
+      poolTasks[poolIndex] = { text: gridText, remark: gridRemark };
+      setCellText(gridIndex, task);
+      setCellRemark(gridIndex, poolItem.remark);
+    } else {
+      poolTasks.splice(poolIndex, 1);
+      setCellText(gridIndex, task);
+      setCellRemark(gridIndex, poolItem.remark);
+    }
+    syncCellRemarkBadge(cell);
+    renderPool();
+    saveState();
+  }
+
+  function moveGridToPool(gridIndex, poolIndex) {
+    var text = readCellText(getCellTextEl(cells[gridIndex])).trim();
+    if (!text) return;
+    var item = { text: text, remark: getCellRemark(gridIndex) };
+    if (poolIndex >= 0 && poolIndex <= poolTasks.length) {
+      poolTasks.splice(poolIndex, 0, item);
+    } else {
+      poolTasks.push(item);
+    }
+    setCellText(gridIndex, '');
+    setCellRemark(gridIndex, '');
+    syncCellRemarkBadge(cells[gridIndex]);
+    renderPool();
+    saveState();
+  }
+
+  function reorderPool(from, to) {
+    if (from === to || from < 0 || to < 0 || from >= poolTasks.length || to >= poolTasks.length) return;
+    var item = poolTasks.splice(from, 1)[0];
+    poolTasks.splice(to, 0, item);
+    renderPool();
+    saveState();
+  }
+
+  function handleDrop(target, source) {
+    if (!source || !target) return;
+    if (source.type === target.type && source.index === target.index) return;
+
+    if (source.type === 'pool' && target.type === 'grid') {
+      movePoolToGrid(source.index, target.index);
+      showToast('已放入表格 #' + (target.index + 1));
+      return;
+    }
+    if (source.type === 'grid' && target.type === 'pool') {
+      moveGridToPool(source.index, target.index);
+      showToast('已移入待选区');
+      return;
+    }
+    if (source.type === 'grid' && target.type === 'grid' && dragMode) {
+      swapCells(source.index, target.index);
+      return;
+    }
+    if (source.type === 'pool' && target.type === 'pool') {
+      reorderPool(source.index, target.index);
+      showToast('待选区顺序已调整');
+    }
+  }
+
+  function bindPoolItemEvents(item, index) {
+    item.addEventListener('dragstart', function (e) {
+      dragSource = { type: 'pool', index: index };
+      document.body.classList.add('pool-drag-active');
+      item.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', encodeDrag('pool', index));
+    });
+    item.addEventListener('dragend', clearDragUi);
+    item.addEventListener('dragover', function (e) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      if (dragSource && !(dragSource.type === 'pool' && dragSource.index === index)) {
+        item.classList.add('drag-over');
+      }
+    });
+    item.addEventListener('dragleave', function () {
+      item.classList.remove('drag-over');
+    });
+    item.addEventListener('drop', function (e) {
+      e.preventDefault();
+      item.classList.remove('drag-over');
+      var source = dragSource || parseDrag(e.dataTransfer.getData('text/plain'));
+      handleDrop({ type: 'pool', index: index }, source);
+      clearDragUi();
+    });
+  }
+
+  function bindPoolListEvents() {
+    poolListEl.addEventListener('dragover', function (e) {
+      if (e.target !== poolListEl) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+    });
+    poolListEl.addEventListener('drop', function (e) {
+      if (e.target !== poolListEl) return;
+      e.preventDefault();
+      var source = dragSource || parseDrag(e.dataTransfer.getData('text/plain'));
+      if (!source) return;
+      if (source.type === 'grid') {
+        moveGridToPool(source.index, poolTasks.length);
+        showToast('已移入待选区');
+        clearDragUi();
+      }
+    });
+  }
+
+  /* 格子点击编辑与拖放事件 */
+  function bindCellEvents(cell) {
+    var textEl = getCellTextEl(cell);
+    var index = Number(cell.dataset.index);
+
+    textEl.addEventListener('focus', function () {
+      if (dragMode || remarkMode) return;
+      cell.classList.add('editing');
+    });
+    textEl.addEventListener('blur', function () {
+      cell.classList.remove('editing');
+      syncCellEmpty(cell);
+      saveState();
+    });
+    textEl.addEventListener('input', function () {
+      syncCellEmpty(cell);
+      saveState();
+    });
+    textEl.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        textEl.blur();
+      }
+    });
+
+    cell.addEventListener('click', function (e) {
+      if (remarkMode) {
+        openRemarkEdit(index);
+        return;
+      }
+      if (dragMode) return;
+      if (e.target === textEl) return;
+      textEl.focus();
+      var range = document.createRange();
+      range.selectNodeContents(textEl);
+      range.collapse(false);
+      var sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+    });
+
+    cell.addEventListener('dragstart', function (e) {
+      if (remarkMode) {
+        e.preventDefault();
+        return;
+      }
+      dragSource = { type: 'grid', index: index };
+      document.body.classList.add('pool-drag-active');
+      cell.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', encodeDrag('grid', index));
+    });
+    cell.addEventListener('dragend', clearDragUi);
+    cell.addEventListener('dragover', function (e) {
+      if (remarkMode) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      if (!dragSource || !(dragSource.type === 'grid' && dragSource.index === index)) {
+        cell.classList.add('drag-over');
+      }
+    });
+    cell.addEventListener('dragleave', function () {
+      cell.classList.remove('drag-over');
+    });
+    cell.addEventListener('drop', function (e) {
+      if (remarkMode) return;
+      e.preventDefault();
+      cell.classList.remove('drag-over');
+      var source = dragSource || parseDrag(e.dataTransfer.getData('text/plain'));
+      if (source && source.type === 'grid' && source.index === index && !dragMode) {
+        clearDragUi();
+        return;
+      }
+      handleDrop({ type: 'grid', index: index }, source);
+      clearDragUi();
+    });
+  }
+
+  /* 构建 5×5 表格 DOM */
+  function buildGrid() {
+    gridEl.innerHTML = '';
+    cells = [];
+    for (var i = 0; i < GRID_SIZE; i++) {
+      var cell = document.createElement('div');
+      cell.className = 'cell empty';
+      cell.dataset.index = String(i);
+
+      var idx = document.createElement('span');
+      idx.className = 'cell-index';
+      idx.textContent = String(i + 1);
+
+      var badge = document.createElement('span');
+      badge.className = 'cell-remark-badge';
+      badge.textContent = '备';
+
+      var scroll = document.createElement('div');
+      scroll.className = 'cell-scroll';
+
+      var text = document.createElement('div');
+      text.className = 'cell-text';
+      text.contentEditable = 'true';
+      text.setAttribute('data-placeholder', '');
+      text.spellcheck = false;
+
+      var remarkStore = document.createElement('textarea');
+      remarkStore.className = 'cell-remark-store';
+      remarkStore.setAttribute('aria-hidden', 'true');
+      remarkStore.style.display = 'none';
+
+      scroll.appendChild(text);
+      cell.appendChild(idx);
+      cell.appendChild(badge);
+      cell.appendChild(scroll);
+      cell.appendChild(remarkStore);
+      bindCellEvents(cell);
+      syncCellRemarkBadge(cell);
+      gridEl.appendChild(cell);
+      cells.push(cell);
+    }
+    setDragMode(dragMode, true);
+    setRemarkMode(remarkMode, true);
+  }
+
+  /* 下载弹窗：Blob、文件名、分享、文字预览 */
+  function isMobileEnv() {
+    return /Android|webOS|iPhone|iPad|iPod|Mobile|MicroMessenger|QQ\//i.test(navigator.userAgent) ||
+      (window.matchMedia && window.matchMedia('(max-width: 768px)').matches);
+  }
+
+  function revokeActiveDownloadUrl() {
+    if (activeDownloadUrl) {
+      URL.revokeObjectURL(activeDownloadUrl);
+      activeDownloadUrl = '';
+    }
+    activeDownloadBlob = null;
+    activeDownloadFilename = '';
+    activeDownloadType = '';
+    activeExcelWb = null;
+    activeExcelMeta = null;
+  }
+
+  function splitExportFilename(filename) {
+    var m = String(filename).match(/^(.+?)(\.(xlsx|xls|txt))$/i);
+    if (m) return { base: m[1], ext: '.' + m[3].toLowerCase() };
+    return { base: String(filename), ext: '.xlsx' };
+  }
+
+  function getSelectedDownloadExt() {
+    var checked = document.querySelector('input[name="downloadExt"]:checked');
+    return checked ? checked.value : '.xlsx';
+  }
+
+  function getEditedDownloadFilename() {
+    var base = sanitizeFilename(downloadFallbackBase.value.trim()) || 'bingo-table';
+    return base + getSelectedDownloadExt();
+  }
+
+  function configureDownloadExtOptions(type, preferredExt) {
+    var isExcel = type === 'excel';
+    downloadExtXlsxOption.style.display = isExcel ? '' : 'none';
+    downloadExtXlsOption.style.display = isExcel ? '' : 'none';
+    downloadExtTxtOption.style.display = isExcel ? 'none' : '';
+    var ext = preferredExt || (isExcel ? '.xlsx' : '.txt');
+    if (!isExcel) ext = '.txt';
+    if (isExcel && ext !== '.xls' && ext !== '.xlsx') ext = '.xlsx';
+    var input = document.querySelector('input[name="downloadExt"][value="' + ext + '"]');
+    if (input) input.checked = true;
+  }
+
+  function writeExcelBlob(wb, bookType) {
+    var wbout = XLSX.write(wb, {
+      bookType: bookType,
+      type: 'array',
+      compression: bookType === 'xlsx',
+      cellStyles: bookType === 'xlsx'
+    });
+    return {
+      data: new Uint8Array(wbout),
+      mime: bookType === 'xlsx'
+        ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        : 'application/vnd.ms-excel'
+    };
+  }
+
+  function setActiveDownloadBlob(content, mime) {
+    activeDownloadBlob = new Blob([toBlobPart(content)], { type: mime });
+    if (activeDownloadUrl) URL.revokeObjectURL(activeDownloadUrl);
+    var source = activeDownloadBlob;
+    activeDownloadFilename = getEditedDownloadFilename();
+    var file = createDownloadFile();
+    if (file) source = file;
+    activeDownloadUrl = URL.createObjectURL(source);
+    downloadFallbackLink.href = activeDownloadUrl;
+  }
+
+  /* xls 格式：HTML 表格导出（保留样式） */
+  function excelHtmlEscape(text) {
+    return escapeHtml(text).replace(/\r?\n/g, '<br>');
+  }
+
+  function buildExcelHtmlXls(meta) {
+    var rowLabels = getRowLabels();
+    var title = meta.tableName + ' [制表人 ' + meta.tableAuthor + ']';
+    var remarkLines = getRemarkExportLines();
+    var notesText = remarkLines.length ? remarkLines.join('\n') : '';
+    var rows = [];
+    var r;
+    var c;
+
+    rows.push('<tr><td class="title" colspan="6" height="107">' + excelHtmlEscape(title) + '</td></tr>');
+    for (r = 0; r < 5; r++) {
+      rows.push('<tr>');
+      rows.push('<td class="phase" width="96" height="107">' + excelHtmlEscape(rowLabels[r]) + '</td>');
+      for (c = 0; c < 5; c++) {
+        rows.push('<td class="data" width="188" height="107">' + excelHtmlEscape(getCellTextAt(r, c)) + '</td>');
+      }
+      rows.push('</tr>');
+    }
+    rows.push('<tr><td class="notes" colspan="6" height="300">' + excelHtmlEscape(notesText) + '</td></tr>');
+
+    return [
+      '<html xmlns:o="urn:schemas-microsoft-com:office:office"',
+      'xmlns:x="urn:schemas-microsoft-com:office:excel"',
+      'xmlns="http://www.w3.org/TR/REC-html40">',
+      '<head>',
+      '<meta http-equiv="Content-Type" content="text/html; charset=utf-8">',
+      '<!--[if gte mso 9]><xml>',
+      '<x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet>',
+      '<x:Name>Bingo</x:Name>',
+      '<x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions>',
+      '</x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook>',
+      '</xml><![endif]-->',
+      '<style>',
+      'table { border-collapse: collapse; table-layout: fixed; }',
+      'td {',
+      'border: 1px solid #5B9BD5;',
+      'font-family: "Microsoft YaHei", Arial, sans-serif;',
+      'font-size: 11pt;',
+      'padding: 4px 6px;',
+      'vertical-align: middle;',
+      'text-align: center;',
+      'white-space: normal;',
+      'word-wrap: break-word;',
+      'mso-number-format:"\\@";',
+      '}',
+      '.title { color: #1E88E5; font-weight: bold; background: #FFFFFF; }',
+      '.phase { font-weight: bold; background: #FFFFFF; }',
+      '.data { background: #F2F2F2; }',
+      '.notes { background: #FFFFFF; vertical-align: top; }',
+      '</style>',
+      '</head>',
+      '<body>',
+      '<table>',
+      rows.join(''),
+      '</table>',
+      '</body></html>'
+    ].join('');
+  }
+
+  function regenerateExcelDownloadBlob() {
+    var ext = getSelectedDownloadExt();
+    if (ext === '.xls') {
+      if (!activeExcelMeta) return;
+      setActiveDownloadBlob('\ufeff' + buildExcelHtmlXls(activeExcelMeta), 'application/vnd.ms-excel');
+      return;
+    }
+    if (!activeExcelWb) return;
+    var result = writeExcelBlob(activeExcelWb, 'xlsx');
+    setActiveDownloadBlob(result.data, result.mime);
+  }
+
+  function buildAsciiFallbackFilename(filename) {
+    var extMatch = String(filename).match(/(\.[^.]+)$/);
+    var ext = extMatch ? extMatch[1] : '';
+    return 'bingo-export' + ext;
+  }
+
+  function canShareDownloadFile() {
+    if (typeof File === 'undefined' || !navigator.share || !activeDownloadBlob || !activeDownloadFilename) {
+      return false;
+    }
+    try {
+      var probe = new File([activeDownloadBlob], activeDownloadFilename, {
+        type: activeDownloadBlob.type || 'application/octet-stream',
+        lastModified: Date.now()
+      });
+      return !navigator.canShare || navigator.canShare({ files: [probe] });
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function createDownloadFile() {
+    if (!activeDownloadBlob || !activeDownloadFilename) return null;
+    try {
+      return new File([activeDownloadBlob], activeDownloadFilename, {
+        type: activeDownloadBlob.type || 'application/octet-stream',
+        lastModified: Date.now()
+      });
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function shareDownloadFile() {
+    syncDownloadFilenameUi();
+    var file = createDownloadFile();
+    if (!file) return Promise.reject(new Error('no-file'));
+    return navigator.share({ files: [file], title: activeDownloadFilename });
+  }
+
+  function syncDownloadFilenameUi() {
+    activeDownloadFilename = getEditedDownloadFilename();
+    var filename = activeDownloadFilename;
+    var mobile = isMobileEnv();
+    var canShare = canShareDownloadFile();
+    downloadFallbackLink.classList.remove('secondary');
+    downloadFallbackShare.classList.remove('show');
+
+    if (canShare && mobile) {
+      downloadFallbackShare.classList.add('show');
+      downloadFallbackShare.textContent = '保存到文件（推荐）';
+      downloadFallbackLink.download = buildAsciiFallbackFilename(filename);
+      downloadFallbackLink.textContent = '浏览器直接下载';
+      downloadFallbackLink.classList.add('secondary');
+      if (/MicroMessenger|QQ\//i.test(navigator.userAgent)) {
+        downloadFallbackTip.textContent = '可编辑文件名与格式。微信/QQ 内请用系统浏览器打开；优先点「保存到文件」可保留中文文件名。';
+      } else {
+        downloadFallbackTip.textContent = '可编辑文件名与格式。手机请优先点「保存到文件」，在菜单中选「存储到文件」以保留中文文件名。';
+      }
+    } else if (/MicroMessenger|QQ\//i.test(navigator.userAgent)) {
+      downloadFallbackLink.download = filename;
+      downloadFallbackLink.textContent = '下载 ' + filename;
+      downloadFallbackTip.textContent = '可编辑文件名与格式。微信/QQ 内请用系统浏览器打开本页后导出。';
+    } else if (mobile) {
+      downloadFallbackLink.download = buildAsciiFallbackFilename(filename);
+      downloadFallbackLink.textContent = '下载 ' + buildAsciiFallbackFilename(filename);
+      downloadFallbackTip.textContent = '可编辑文件名与格式。浏览器下载可能无法保留中文名，完整名称见上方输入框。';
+    } else {
+      downloadFallbackLink.download = filename;
+      downloadFallbackLink.textContent = '下载 ' + filename;
+      if (activeDownloadType === 'text') {
+        downloadFallbackTip.textContent = '可直接复制上方文字，或编辑文件名后下载 .txt 文件。';
+      } else {
+        downloadFallbackTip.textContent = '可编辑文件名与格式，确认后点击下方按钮下载。';
+      }
+    }
+  }
+
+  function configureDownloadTextPreview(type, content) {
+    var isText = type === 'text';
+    downloadTextPreview.classList.toggle('show', isText);
+    downloadFallbackBox.classList.toggle('wide', isText);
+    downloadFallbackTitle.textContent = isText ? '文字已生成' : '文件已生成';
+    if (isText) {
+      downloadTextContent.value = content || '';
+    } else {
+      downloadTextContent.value = '';
+    }
+  }
+
+  function copyDownloadTextContent() {
+    var text = downloadTextContent.value;
+    if (!text) {
+      showToast('暂无文字内容');
+      return;
+    }
+    function fallbackCopy() {
+      downloadTextContent.focus();
+      downloadTextContent.select();
+      try {
+        if (document.execCommand('copy')) {
+          showToast('已复制到剪贴板');
+        } else {
+          showToast('请手动全选后复制');
+        }
+      } catch (e) {
+        showToast('请手动全选后复制');
+      }
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () {
+        showToast('已复制到剪贴板');
+      }).catch(fallbackCopy);
+    } else {
+      fallbackCopy();
+    }
+  }
+
+  function openDownloadPanel(options) {
+    revokeActiveDownloadUrl();
+    activeDownloadType = options.type;
+    activeExcelWb = options.wb || null;
+    activeExcelMeta = options.meta || null;
+
+    var parsed = splitExportFilename(options.filename);
+    downloadFallbackBase.value = parsed.base;
+    configureDownloadExtOptions(options.type, parsed.ext);
+    configureDownloadTextPreview(options.type, options.textContent || '');
+
+    if (options.type === 'excel' && activeExcelWb) {
+      regenerateExcelDownloadBlob();
+    } else if (options.type === 'text') {
+      setActiveDownloadBlob('\ufeff' + options.textContent, 'text/plain;charset=utf-8');
+    }
+
+    syncDownloadFilenameUi();
+    downloadFallback.classList.add('show');
+    if (options.type === 'text') {
+      downloadTextContent.focus();
+      downloadTextContent.select();
+    } else {
+      downloadFallbackBase.focus();
+      downloadFallbackBase.select();
+    }
+  }
+
+  function hideDownloadFallback() {
+    downloadFallback.classList.remove('show');
+    revokeActiveDownloadUrl();
+  }
+
+  function toBlobPart(content) {
+    if (content instanceof Uint8Array) {
+      return content.buffer.slice(content.byteOffset, content.byteOffset + content.byteLength);
+    }
+    return content;
+  }
+
+  function onDownloadExtChange() {
+    if (activeDownloadType === 'excel') regenerateExcelDownloadBlob();
+    syncDownloadFilenameUi();
+  }
+
+  /* 导出前表名作者校验与弹窗 */
+  function openExportModal(type) {
+    pendingExportType = type;
+    exportTableName.value = tableNameInput.value;
+    exportTableAuthor.value = tableAuthorInput.value;
+    exportExcelExtra.style.display = type === 'excel' ? 'block' : 'none';
+    exportModalTitle.textContent = type === 'excel' ? '导出 Excel' : '导出文字';
+    exportModalSub.textContent = type === 'excel'
+      ? '请填写表名与表作者。下载时可选择 .xlsx 或 .xls 格式。备注请在备注模式下填写。'
+      : '请填写表名与表作者。文字文件含 25 格正文与备注，可用于导入同步。';
+    exportModal.classList.add('show');
+    exportTableName.focus();
+  }
+
+  function closeExportModal() {
+    pendingExportType = '';
+    exportModal.classList.remove('show');
+  }
+
+  function validateExportMeta() {
+    var tableName = exportTableName.value.trim();
+    var tableAuthor = exportTableAuthor.value.trim();
+    if (!tableName) {
+      showToast('请填写表名');
+      exportTableName.focus();
+      return null;
+    }
+    if (!tableAuthor) {
+      showToast('请填写表作者');
+      exportTableAuthor.focus();
+      return null;
+    }
+    tableNameInput.value = tableName;
+    tableAuthorInput.value = tableAuthor;
+    saveState();
+    return { tableName: tableName, tableAuthor: tableAuthor };
+  }
+
+  function getCellTextAt(row, col) {
+    var cell = cells[row * 5 + col];
+    if (!cell) return '';
+    return readCellText(getCellTextEl(cell));
+  }
+
+  /* xlsx 工作簿构建与单元格样式 */
+  function xlBorderAll() {
+    var edge = { style: 'thin', color: { rgb: '5B9BD5' } };
+    return { top: edge, bottom: edge, left: edge, right: edge };
+  }
+
+  function xlFont(bold, rgb) {
+    return {
+      name: 'Microsoft YaHei',
+      sz: 11,
+      bold: !!bold,
+      color: { rgb: rgb || '000000' }
+    };
+  }
+
+  function applyExcelCellStyle(ws, row, col, style) {
+    var ref = XLSX.utils.encode_cell({ r: row, c: col });
+    if (!ws[ref]) ws[ref] = { t: 's', v: '' };
+    ws[ref].s = style;
+  }
+
+  function applyExcelBodyStyles(ws) {
+    var border = xlBorderAll();
+    var titleStyle = {
+      font: xlFont(true, '1E88E5'),
+      alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+      fill: { fgColor: { rgb: 'FFFFFF' }, patternType: 'solid' },
+      border: border
+    };
+    var phaseStyle = {
+      font: xlFont(true, '000000'),
+      alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+      fill: { fgColor: { rgb: 'FFFFFF' }, patternType: 'solid' },
+      border: border
+    };
+    var dataStyle = {
+      font: xlFont(false, '000000'),
+      alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+      fill: { fgColor: { rgb: 'F2F2F2' }, patternType: 'solid' },
+      border: border
+    };
+    var notesStyle = {
+      font: xlFont(false, '000000'),
+      alignment: { horizontal: 'center', vertical: 'top', wrapText: true },
+      fill: { fgColor: { rgb: 'FFFFFF' }, patternType: 'solid' },
+      border: border
+    };
+
+    applyExcelCellStyle(ws, 0, 0, titleStyle);
+    for (var r = 1; r <= 5; r++) {
+      applyExcelCellStyle(ws, r, 0, phaseStyle);
+      for (var c = 1; c <= 5; c++) applyExcelCellStyle(ws, r, c, dataStyle);
+    }
+    applyExcelCellStyle(ws, 6, 0, notesStyle);
+  }
+
+  function buildExcelWorkbook(meta) {
+    var rowLabels = getRowLabels();
+    var title = meta.tableName + ' [制表人 ' + meta.tableAuthor + ']';
+    var remarkLines = getRemarkExportLines();
+    var notesText = remarkLines.length ? remarkLines.join('\n') : '';
+    var sheetData = [[title, '', '', '', '', '']];
+
+    for (var r = 0; r < 5; r++) {
+      var row = [rowLabels[r]];
+      for (var c = 0; c < 5; c++) row.push(getCellTextAt(r, c));
+      sheetData.push(row);
+    }
+    sheetData.push([notesText, '', '', '', '', '']);
+
+    var ws = XLSX.utils.aoa_to_sheet(sheetData);
+    ws['!merges'] = [
+      { s: { r: 0, c: 0 }, e: { r: 0, c: 5 } },
+      { s: { r: 6, c: 0 }, e: { r: 6, c: 5 } }
+    ];
+    ws['!cols'] = [
+      { wch: 12 }, { wch: 25 }, { wch: 25 }, { wch: 25 }, { wch: 25 }, { wch: 25 }
+    ];
+    ws['!rows'] = [
+      { hpt: 80 }, { hpt: 80 }, { hpt: 80 }, { hpt: 80 }, { hpt: 80 }, { hpt: 80 }, { hpt: 225 }
+    ];
+    applyExcelBodyStyles(ws);
+
+    var wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Bingo');
+    return wb;
+  }
+
+  function exportExcel() {
+    flushPendingSave();
+    var meta = validateExportMeta();
+    if (!meta) return;
+    if (typeof XLSX === 'undefined') {
+      showToast('Excel 组件未加载，请联网后刷新页面');
+      return;
+    }
+
+    var wb = buildExcelWorkbook(meta);
+    closeExportModal();
+    openDownloadPanel({
+      type: 'excel',
+      filename: buildExportFilename('.xlsx'),
+      wb: wb,
+      meta: meta
+    });
+    showToast('Excel 已生成，请确认文件名后下载');
+  }
+
+  /* 文字导出内容组装 */
+  function buildTextExportContent(meta) {
+    var lines = [
+      '@table:' + meta.tableName,
+      '@author:' + meta.tableAuthor,
+      TEXT_SECTION_GRID
+    ];
+    var texts = getCellTexts(true);
+    for (var i = 0; i < GRID_SIZE; i++) lines.push(texts[i] || '');
+    lines.push(TEXT_SECTION_REMARKS);
+    getCellRemarks().forEach(function (text, i) {
+      var t = (text || '').trim();
+      if (t) lines.push(indexToCoord(i) + ': ' + t);
+    });
+    return lines.join('\n') + '\n';
+  }
+
+  /* 文字导入解析与写回表格 */
+  function parseRemarkImportBlock(block, remarks) {
+    var lines = String(block || '').split('\n');
+    var currentIndex = -1;
+    var currentParts = [];
+    function flush() {
+      if (currentIndex >= 0) remarks[currentIndex] = currentParts.join('\n').trim();
+    }
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i];
+      var m = line.match(/^(\d+\s*[-–]\s*\d+)\s*:\s*(.*)$/);
+      if (m) {
+        flush();
+        currentIndex = coordToIndex(m[1]);
+        currentParts = [m[2]];
+      } else if (currentIndex >= 0) {
+        currentParts.push(line);
+      }
+    }
+    flush();
+  }
+
+  function parseTextImportContent(raw) {
+    var text = String(raw || '').replace(/^\uFEFF/, '').replace(/\r/g, '');
+    var grid = new Array(GRID_SIZE);
+    var remarks = new Array(GRID_SIZE);
+    var meta = { tableName: '', tableAuthor: '' };
+    var i;
+    for (i = 0; i < GRID_SIZE; i++) {
+      grid[i] = '';
+      remarks[i] = '';
+    }
+
+    var headerLines = [];
+    var body = text;
+    var firstMarker = text.indexOf(TEXT_SECTION_GRID);
+    if (firstMarker !== -1) {
+      headerLines = text.slice(0, firstMarker).split('\n');
+      body = text.slice(firstMarker);
+    }
+
+    headerLines.forEach(function (line) {
+      var t = line.trim();
+      if (t.indexOf('@table:') === 0) meta.tableName = t.slice(7).trim();
+      if (t.indexOf('@author:') === 0) meta.tableAuthor = t.slice(8).trim();
+    });
+
+    if (body.indexOf(TEXT_SECTION_GRID) !== -1) {
+      var parts = body.split(TEXT_SECTION_REMARKS);
+      var gridBlock = parts[0].replace(TEXT_SECTION_GRID, '').replace(/^\n/, '');
+      var gridLines = gridBlock.split('\n');
+      for (i = 0; i < GRID_SIZE; i++) grid[i] = gridLines[i] !== undefined ? gridLines[i] : '';
+      if (parts.length > 1) parseRemarkImportBlock(parts[1], remarks);
+    } else {
+      var allLines = text.split('\n');
+      var start = 0;
+      if (allLines[0] && allLines[0].indexOf('@table:') === 0) start++;
+      if (allLines[start] && allLines[start].indexOf('@author:') === 0) start++;
+      var remarkStart = -1;
+      for (i = start; i < allLines.length; i++) {
+        if (/^\d+\s*[-–]\s*\d+\s*:/.test(allLines[i].trim())) {
+          remarkStart = i;
+          break;
+        }
+      }
+      if (remarkStart === -1) {
+        for (i = 0; i < GRID_SIZE; i++) grid[i] = allLines[start + i] !== undefined ? allLines[start + i] : '';
+      } else {
+        for (i = 0; i < GRID_SIZE; i++) {
+          var lineIndex = start + i;
+          grid[i] = lineIndex < remarkStart && allLines[lineIndex] !== undefined ? allLines[lineIndex] : '';
+        }
+        parseRemarkImportBlock(allLines.slice(remarkStart).join('\n'), remarks);
+      }
+    }
+
+    return { grid: grid, remarks: remarks, meta: meta };
+  }
+
+  function applyTextImport(data) {
+    for (var i = 0; i < GRID_SIZE; i++) {
+      setCellText(i, data.grid[i] || '');
+      setCellRemark(i, data.remarks[i] || '');
+      syncCellRemarkBadge(cells[i]);
+    }
+    if (data.meta.tableName) tableNameInput.value = data.meta.tableName;
+    if (data.meta.tableAuthor) tableAuthorInput.value = data.meta.tableAuthor;
+    saveState();
+  }
+
+  /* 导入文字弹窗与文件读取 */
+  function setImportFileName(name) {
+    var el = document.getElementById('importFileName');
+    var text = (name || '').trim();
+    if (text) {
+      el.textContent = text;
+      el.classList.remove('is-empty');
+    } else {
+      el.textContent = '未选择文件';
+      el.classList.add('is-empty');
+    }
+  }
+
+  function openImportTextModal() {
+    document.getElementById('importTextInput').value = '';
+    document.getElementById('importTextFile').value = '';
+    setImportFileName('');
+    document.getElementById('importTextModal').classList.add('show');
+    document.getElementById('importTextInput').focus();
+  }
+
+  function closeImportTextModal() {
+    document.getElementById('importTextModal').classList.remove('show');
+  }
+
+  function confirmImportText() {
+    var raw = document.getElementById('importTextInput').value;
+    if (!raw.trim()) {
+      showToast('请粘贴内容或选择文件');
+      return;
+    }
+    var data = parseTextImportContent(raw);
+    applyTextImport(data);
+    closeImportTextModal();
+    showToast('文字已导入到表格');
+  }
+
+  function exportText() {
+    var meta = validateExportMeta();
+    if (!meta) return;
+
+    var content = buildTextExportContent(meta);
+    closeExportModal();
+    openDownloadPanel({
+      type: 'text',
+      filename: buildExportFilename('.txt'),
+      textContent: content
+    });
+    showToast('文字已生成，可直接复制或下载');
+  }
+
+  function confirmExport() {
+    if (pendingExportType === 'excel') exportExcel();
+    else if (pendingExportType === 'text') exportText();
+  }
+
+  /* HTML 转义（xls 导出用） */
+  function escapeHtml(str) {
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  /* 按钮与输入事件绑定 */
+  document.getElementById('btnBackTools').addEventListener('click', function () {
+    flushPendingSave();
+    window.location.href = 'index.html';
+  });
+  btnDragMode.addEventListener('click', function () {
+    setDragMode(!dragMode);
+    if (!dragMode) showToast('拖拽换位已关闭，点击格子可编辑');
+  });
+  btnRemarkMode.addEventListener('click', function () {
+    setRemarkMode(!remarkMode);
+    if (!remarkMode) showToast('备注模式已关闭');
+  });
+  document.getElementById('btnRemarkCancel').addEventListener('click', function () {
+    closeRemarkEdit(false);
+  });
+  document.getElementById('btnRemarkSave').addEventListener('click', function () {
+    closeRemarkEdit(true);
+  });
+  remarkModal.addEventListener('click', function (e) {
+    if (e.target === remarkModal) closeRemarkEdit(false);
+  });
+  remarkEditInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') closeRemarkEdit(false);
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) closeRemarkEdit(true);
+  });
+  document.getElementById('btnSaveTable').addEventListener('click', openSaveTableModal);
+  document.getElementById('btnSaveTableCancel').addEventListener('click', closeSaveTableModal);
+  document.getElementById('btnSaveTableConfirm').addEventListener('click', confirmSaveTable);
+  saveTableModal.addEventListener('click', function (e) {
+    if (e.target === saveTableModal) closeSaveTableModal();
+  });
+  saveArchiveName.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') confirmSaveTable();
+  });
+  document.getElementById('btnLoadTable').addEventListener('click', openLoadTableModal);
+  document.getElementById('btnLoadTableClose').addEventListener('click', function () {
+    loadTableModal.classList.remove('show');
+  });
+  loadTableModal.addEventListener('click', function (e) {
+    if (e.target === loadTableModal) loadTableModal.classList.remove('show');
+  });
+  document.getElementById('btnClearDraft').addEventListener('click', function () {
+    if (!draftInput.value.trim() || confirm('确定清空草稿栏？')) {
+      draftInput.value = '';
+      saveState();
+    }
+  });
+  document.getElementById('btnClearGrid').addEventListener('click', function () {
+    if (confirm('确定清空整个 5×5 表格（含备注）？')) {
+      for (var i = 0; i < GRID_SIZE; i++) {
+        setCellText(i, '');
+        setCellRemark(i, '');
+      }
+      saveState();
+      showToast('表格已清空');
+    }
+  });
+  document.getElementById('btnExportExcel').addEventListener('click', function () {
+    openExportModal('excel');
+  });
+  document.getElementById('btnExportText').addEventListener('click', function () {
+    openExportModal('text');
+  });
+  document.getElementById('btnImportText').addEventListener('click', openImportTextModal);
+  document.getElementById('btnImportTextCancel').addEventListener('click', closeImportTextModal);
+  document.getElementById('btnImportTextConfirm').addEventListener('click', confirmImportText);
+  document.getElementById('importTextModal').addEventListener('click', function (e) {
+    if (e.target.id === 'importTextModal') closeImportTextModal();
+  });
+  document.getElementById('importTextFile').addEventListener('change', function (e) {
+    var file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setImportFileName(file.name);
+    var reader = new FileReader();
+    reader.onload = function () {
+      document.getElementById('importTextInput').value = String(reader.result || '');
+    };
+    reader.onerror = function () {
+      showToast('读取文件失败');
+    };
+    reader.readAsText(file, 'UTF-8');
+  });
+  document.getElementById('btnExportCancel').addEventListener('click', closeExportModal);
+  document.getElementById('btnExportConfirm').addEventListener('click', confirmExport);
+  exportModal.addEventListener('click', function (e) {
+    if (e.target === exportModal) closeExportModal();
+  });
+  exportTableName.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') exportTableAuthor.focus();
+  });
+  exportTableAuthor.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') confirmExport();
+  });
+  tableNameInput.addEventListener('input', saveState);
+  tableAuthorInput.addEventListener('input', saveState);
+  for (var rl = 1; rl <= 5; rl++) {
+    document.getElementById('rowLabel' + rl).addEventListener('input', saveState);
+  }
+  draftInput.addEventListener('input', saveState);
+  document.getElementById('btnPoolFromDraft').addEventListener('click', fillPoolFromDraft);
+  document.getElementById('btnClearPool').addEventListener('click', function () {
+    if (!poolTasks.length || confirm('确定清空任务待选区？')) {
+      poolTasks = [];
+      renderPool();
+      saveState();
+    }
+  });
+  bindPoolListEvents();
+  document.getElementById('downloadFallbackClose').addEventListener('click', hideDownloadFallback);
+  document.getElementById('btnCopyTextContent').addEventListener('click', copyDownloadTextContent);
+  downloadFallbackBase.addEventListener('input', syncDownloadFilenameUi);
+  document.querySelectorAll('input[name="downloadExt"]').forEach(function (radio) {
+    radio.addEventListener('change', onDownloadExtChange);
+  });
+  downloadFallbackLink.addEventListener('click', function () {
+    syncDownloadFilenameUi();
+  });
+  downloadFallbackShare.addEventListener('click', function () {
+    shareDownloadFile().then(function () {
+      showToast('请在系统菜单中选择保存位置');
+    }).catch(function (err) {
+      if (!err || err.name !== 'AbortError') {
+        showToast('保存失败，请试下方「浏览器直接下载」');
+      }
+    });
+  });
+  downloadFallback.addEventListener('click', function (e) {
+    if (e.target === downloadFallback) hideDownloadFallback();
+  });
+  window.addEventListener('beforeunload', flushPendingSave);
+  window.addEventListener('pagehide', flushPendingSave);
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'hidden') flushPendingSave();
+  });
+
+  /* 启动：渲染待选区、建表、恢复状态 */
+  renderPool();
+  buildGrid();
+  loadState();
+})();
+</script>
+</body>
+</html>

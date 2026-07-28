@@ -33,8 +33,7 @@ bingotools/
 ├── cmd/
 │   ├── headless/main.go       # End-to-end validator using net/http + ffmpeg
 │   └── e2e-frontend/main.go   # Helper server for frontend integration tests
-├── scripts/patch_p4.py        # Historical patch script for the P4 frontend refactor
-└── PLAN.md                    # Detailed plan and progress tracker
+└── scripts/patch_p4.py        # Historical patch script for the P4 frontend refactor
 ```
 
 ## Build Commands
