@@ -1,6 +1,8 @@
 // QQ 群事件接收；只保存群标识，不记录群成员或消息正文。
 export class QQEvents {
-  constructor({ connectInfo, Socket = globalThis.WebSocket, log = console.log }) {
+  constructor({ connectInfo, Socket = globalThis.WebSocket, log = console.log, onMention = async () => {} }) {
+    this.onMention = onMention;
+    this.seenMessages = new Map();
     this.connectInfo = connectInfo;
     this.Socket = Socket;
     this.log = log;
@@ -125,19 +127,25 @@ export class QQEvents {
         this.state = 'ready';
         this.lastError = '';
         this.attempt = 0;
-        this.log('[qq-events] QQ 事件连接已就绪；仅首次获取群标识需要在群中 @机器人，已配置目标群可直接从网页发送');
+        this.log('[qq-events] QQ 事件连接已就绪；目标群 @机器人可查询进行中的比赛');
       }
       if (frame.t === 'GROUP_AT_MESSAGE_CREATE') {
         const id = frame.d?.group_openid;
         if (typeof id !== 'string' || !id || id.length > 256 || /[\x00-\x20\x7f]/.test(id)) return;
         const old = this.groups.get(id);
         if (old?.message_id === frame.d.id) return;
+        const messageId = frame.d.id;
+        if (typeof messageId !== 'string' || !messageId || this.seenMessages.has(messageId)) return;
+        this.seenMessages.set(messageId, Date.now());
+        if (this.seenMessages.size > 2000) this.seenMessages.delete(this.seenMessages.keys().next().value);
         if (!old && this.groups.size >= 100) this.groups.delete(this.groups.keys().next().value);
         this.groups.set(id, {
           group_openid: id, last_seen: new Date().toISOString(),
           message_id: typeof frame.d.id === 'string' ? frame.d.id : ''
         });
         this.log(`[qq-events] 收到群事件，group_openid=${id}；使用 npm run status 查看`);
+        Promise.resolve().then(() => this.onMention({ group_openid: id, id: messageId }))
+          .catch(() => this.log('[qq-events] 群查询回复失败，请检查服务日志和数据库状态'));
       }
     }
   }
