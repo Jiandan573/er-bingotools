@@ -11,7 +11,7 @@ Object.assign(process.env, {
 });
 const { createServer } = await import('./server.mjs');
 
-test('API-only hosting, authenticated sends, local HTML CORS and cloud storage requirement', async t => {
+test('API-only hosting, authenticated sends, local HTML CORS and in-memory match lifecycle', async t => {
   const server = createServer();
   await new Promise((resolve, reject) => {
     server.once('error', reject);
@@ -51,7 +51,7 @@ test('API-only hosting, authenticated sends, local HTML CORS and cloud storage r
   assert.equal(preflight.headers.get('access-control-allow-origin'), headers.Origin);
   assert.equal((await fetch(base + '/health', { headers: { Origin: 'https://untrusted.example' } })).status, 403);
 
-  const body = JSON.stringify({ referee: { room: '123', title: 'test' } });
+  const body = JSON.stringify({ referee: { room: '123', title: 'test' }, scores: { red: 0, blue: 0 } });
   const sendTest = () => fetch(base + '/api/v1/qq/test', { method: 'POST', headers, body });
   assert.equal((await fetch(base + '/api/v1/qq/test', { method: 'POST', body })).status, 401);
   assert.equal(sent, 0);
@@ -60,10 +60,19 @@ test('API-only hosting, authenticated sends, local HTML CORS and cloud storage r
   const match = await fetch(base + '/api/v1/matches/start', {
     method: 'POST', headers: { ...headers, 'Idempotency-Key': 'cloud-match-123' }, body
   });
-  assert.equal(match.status, 503);
-  assert.match((await match.json()).error, /数据库未就绪/);
-  assert.equal(sent, 1);
-  for (let i = 1; i < 12; i++) assert.equal((await sendTest()).status, 200);
+  assert.equal(match.status, 200);
+  assert.equal((await match.json()).match_id, 'cloud-match-123');
+  assert.equal(sent, 2);
+  const score = await fetch(base + '/api/v1/matches/score', {
+    method: 'POST', headers, body: JSON.stringify({ match_id:'cloud-match-123', revision:1, scores:{red:10,blue:12} })
+  });
+  assert.equal(score.status, 200);
+  const end = await fetch(base + '/api/v1/matches/end', {
+    method:'POST', headers, body: JSON.stringify({match_id:'cloud-match-123',revision:2,scores:{red:20,blue:22}})
+  });
+  assert.equal(end.status,200);
+  assert.equal(sent,3);
+  for (let i = 3; i < 12; i++) assert.equal((await sendTest()).status, 200);
   assert.equal((await sendTest()).status, 429);
   assert.equal(sent, 12);
 });
