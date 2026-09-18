@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: bingotools-qqbot-service
+    runtime: node
+    plan: free
+    buildCommand: npm --prefix qqbot-service ci
+    startCommand: npm --prefix qqbot-service start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      - key: HOST
+        value: 0.0.0.0
+      - key: QQ_EVENTS_ENABLED
+        value: "false"
+      - key: QQ_APP_ID
+        sync: false
+      - key: QQ_APP_SECRET
+        sync: false
+      - key: QQ_GROUP_OPENID
+        sync: false
+      - key: BOT_CLIENT_KEY
+        generateValue: true
+      - key: SUPABASE_DATABASE_URL
+        sync: false
+      - key: ALLOWED_ORIGINS
+        value: http://localhost:8000,http://127.0.0.1:8000,http://localhost:8787,http://127.0.0.1:8787
