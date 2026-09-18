@@ -1,5 +1,6 @@
 import './local-config.mjs';
 import { QQEvents } from './events.mjs';
+import { Matches } from './matches.mjs';
 import http from 'node:http';
 import crypto from 'node:crypto';
 import { URL } from 'node:url';
@@ -22,7 +23,6 @@ let pool = null;
 let databaseReady = false;
 let cachedAccessToken = '';
 let accessTokenExpiresAt = 0;
-const recentDeliveries = new Map();
 let tokenRequest;
 const allowedOrigins = new Set((process.env.ALLOWED_ORIGINS ||
   'http://localhost:8000,http://127.0.0.1:8000,http://localhost:8787,http://127.0.0.1:8787').split(',').map(s => s.trim()).filter(Boolean));
@@ -46,7 +46,23 @@ const qqEvents = new QQEvents({
     }, 'QQ gateway');
     return { url: gateway.url, token };
   },
-  log: message => console.log(safeError(message))
+  log: message => console.log(safeError(message)),
+  onMention: async event => {
+    if (event.group_openid !== QQ_GROUP_OPENID) return;
+    try {
+      await sendGroupMessage(await matches.current(), { msg_id: event.id, msg_seq: 1 });
+    } catch (error) {
+      console.error('[qq-query]', safeError(error.message));
+    }
+  }
+});
+
+const matches = new Matches({
+  pool: () => databaseReady ? pool : null,
+  requireDatabase: () => Boolean(DATABASE_URL),
+  send: text => sendGroupMessage(text),
+  normalize: validateMatchPayload, formatStart: formatMatchMessage,
+  address: liveRoomAddress, cleanError: safeError
 });
 
 const JSON_HEADERS = {
@@ -171,7 +187,7 @@ async function getAccessToken() {
   try { return await tokenRequest; } finally { tokenRequest = null; }
 }
 
-async function sendGroupMessage(content) {
+async function sendGroupMessage(content, reply = {}) {
   if (!QQ_GROUP_OPENID) {
     throw fail('QQ_GROUP_OPENID is not configured', 503);
   }
@@ -188,10 +204,11 @@ async function sendGroupMessage(content) {
       },
       body: JSON.stringify({
         content,
-        msg_type: 0
+        msg_type: 0,
+        ...reply
       })
     },
-    'QQ 主动群消息（不依赖 @ 或回复上下文）', true
+    reply.msg_id ? 'QQ 比分查询回复' : 'QQ 主动群消息', true
   );
   if (!result.id && !result.message_id) throw fail('QQ response has no message ID; delivery is uncertain', 502, true);
   return result;
@@ -284,56 +301,6 @@ export function formatMatchMessage(match, { test = false } = {}) {
   ].join('\n');
 }
 
-// Reserve the request before sending. A pending/unknown record is never sent again
-// automatically: QQ may already have accepted it before a network interruption.
-async function deliverMatch(key, fingerprint, match, message) {
-  if ((DATABASE_URL && !databaseReady) || (!DATABASE_URL && process.env.RENDER)) {
-    throw fail('比赛记录数据库未就绪；尚未向 QQ 发送', 503);
-  }
-  if (pool) {
-    let row;
-    try {
-      const inserted = await pool.query(
-        `INSERT INTO bingotools_match_events
-         (started_at, referee, left_player, right_player, message_content,
-          delivery_status, idempotency_key, payload_hash)
-         VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7)
-         ON CONFLICT (idempotency_key) DO NOTHING RETURNING id`,
-        [match.started_at, match.referee, match.left, match.right, message, key, fingerprint]);
-      if (!inserted.rowCount) {
-        row = (await pool.query('SELECT * FROM bingotools_match_events WHERE idempotency_key = $1', [key])).rows[0];
-        if (row.payload_hash !== fingerprint) throw fail('同一次请求的比赛内容发生变化', 409);
-        if (row.delivery_status === 'sent') return { ok: true, duplicate: true, qq_message_id: row.qq_message_id, storage: { saved: true } };
-        if (row.delivery_status === 'failed') return { ok: false, error: row.error, retryable: true, storage: { saved: true } };
-        throw fail('此请求正在处理或发送结果未知，请先查看 QQ 群，勿重复播报', 409, true);
-      }
-    } catch (error) {
-      if (error.status) throw error;
-      throw fail('数据库记录失败；尚未向 QQ 发送', 503);
-    }
-  }
-  let result;
-  try {
-    const qq = await sendGroupMessage(message);
-    result = { ok: true, qq_message_id: String(qq.id || qq.message_id) };
-  } catch (error) {
-    result = { ok: false, error: safeError(error.message), uncertain: Boolean(error.uncertain), retryable: !error.uncertain };
-  }
-  result.storage = { saved: false, reason: '本地测试未配置数据库，记录不会持久保存' };
-  if (pool) {
-    try {
-      await pool.query(
-        `UPDATE bingotools_match_events SET delivery_status = $2, qq_message_id = $3, error = $4
-         WHERE idempotency_key = $1`,
-        [key, result.ok ? 'sent' : result.uncertain ? 'unknown' : 'failed', result.qq_message_id || null, result.error || null]);
-      result.storage = { saved: true };
-    } catch {
-      result.storage = { saved: false, reason: '比赛已登记，但发送结果写入失败；请核对 QQ 群' };
-    }
-  }
-  return result;
-}
-
 async function handleTestMessage(req, res) {
   const match = validateMatchPayload(await readJsonBody(req));
   const content = formatMatchMessage(match, { test: true });
@@ -343,30 +310,6 @@ async function handleTestMessage(req, res) {
     message: 'QQ 机器人连接成功',
     qq: result
   });
-}
-
-async function handleMatchStart(req, res) {
-  const match = validateMatchPayload(await readJsonBody(req));
-  const key = String(req.headers['idempotency-key'] || '').trim();
-  if (!/^[a-zA-Z0-9_-]{8,128}$/.test(key)) throw fail('需要有效的 Idempotency-Key');
-  const fingerprint = crypto.createHash('sha256').update(JSON.stringify(match)).digest('hex');
-  // Shared promise prevents simultaneous requests from both sending.
-  for (const [oldKey, entry] of recentDeliveries) {
-    if (entry.finished && Date.now() - entry.created > 24 * 3600 * 1000) recentDeliveries.delete(oldKey);
-  }
-  let entry = recentDeliveries.get(key);
-  if (entry && entry.fingerprint !== fingerprint) throw fail('同一次请求的比赛内容发生变化', 409);
-  const duplicate = Boolean(entry);
-  if (!entry) {
-    if (recentDeliveries.size >= 2000) throw fail('服务请求记录已满，请稍后再试', 429);
-    entry = { fingerprint, created: Date.now(), finished: false };
-    entry.promise = deliverMatch(key, fingerprint, match, formatMatchMessage(match));
-    recentDeliveries.set(key, entry);
-    entry.promise.then(() => { entry.finished = true; }, () => { recentDeliveries.delete(key); });
-  }
-  const result = await entry.promise;
-  if (duplicate && result.ok) result.duplicate = true;
-  jsonResponse(res, result.ok ? 200 : 502, result);
 }
 
 async function initDatabase() {
@@ -453,7 +396,13 @@ async function handleRequest(req, res) {
       return;
     }
     if (req.method === 'POST' && path === '/api/v1/matches/start') {
-      await handleMatchStart(req, res);
+      const result = await matches.start(String(req.headers['idempotency-key'] || ''), await readJsonBody(req));
+      jsonResponse(res, result.ok ? 200 : 502, result);
+      return;
+    }
+    if (req.method === 'POST' && ['/api/v1/matches/score', '/api/v1/matches/end'].includes(path)) {
+      const result = await matches.update(await readJsonBody(req), path.endsWith('/end'));
+      jsonResponse(res, result.ok ? 200 : 502, result);
       return;
     }
     sendError(res, 404, 'not found');
