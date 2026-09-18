@@ -2344,6 +2344,41 @@ input[type="number"].wheel-adjust-active {
   border: 1px solid #666;
   flex-shrink: 0;
 }
+
+/* ================= 网页独立版锁定层（由 scripts/make-standalone.mjs 注入） ================= */
+.standalone-locked {
+  cursor: not-allowed !important;
+  filter: grayscale(0.7);
+  opacity: 0.5 !important;
+}
+.standalone-locked:hover { opacity: 0.62 !important; }
+#standaloneLockTip {
+  position: fixed;
+  z-index: 99999;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: rgba(20, 20, 22, 0.97);
+  border: 1px solid #fb8c00;
+  color: #ffcc80;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  font-family: 'Microsoft YaHei', Arial, sans-serif;
+}
+#standaloneLockTip.is-visible { opacity: 1; }
+.standalone-notice {
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: rgba(251, 140, 0, 0.12);
+  border: 1px solid rgba(251, 140, 0, 0.5);
+  color: #ffcc80;
+  font-size: 12px;
+  line-height: 1.5;
+}
 </style>
 </head>
 <body>
@@ -7545,7 +7580,180 @@ document.addEventListener('keydown', (e) => {
   }
 });
 </script>
-<script src="hls.min.js"></script>
-<script src="flv.min.js"></script>
+
+
+
+<script>
+/* ============ 网页独立版锁定层（由 scripts/make-standalone.mjs 注入） ============ */
+(function () {
+  'use strict';
+  var TIP_TEXT = '请使用桌面应用';
+  var STATIC_LOCKED = ["goBingoMaker()","setLiveCaptureMode(2)"];
+  var DYNAMIC_LOCKED = ["confirmLiveId()"];
+
+  // ---------- 独立版默认使用模式一（B站播放器） ----------
+  // 源文件默认 liveCaptureMode = 2（抖音采集），而模式二在单文件里没有后端可取流，
+  // 停在默认值会让 B站 反而用不了，因此显式切到模式一。
+  try { if (typeof setLiveCaptureMode === 'function') setLiveCaptureMode(1); } catch (e) {}
+
+  // ---------- 判定：此功能此刻是否真的需要桌面应用 ----------
+  function captureModeNow() {
+    try { return typeof getLiveCaptureMode === 'function' ? getLiveCaptureMode() : 1; }
+    catch (e) { return 1; }
+  }
+  function sourceTypeNow() {
+    var input = document.getElementById('liveIdInput');
+    if (!input || typeof parseLiveSource !== 'function') return '';
+    try {
+      var s = parseLiveSource(String(input.value || '').trim());
+      return s ? s.type : '';
+    } catch (e) { return ''; }
+  }
+  // 模式二恒需后端；抖音来源也需后端。B站 + 模式一 = iframe 嵌入，放行。
+  function confirmNeedsBackend() {
+    return captureModeNow() === 2 || sourceTypeNow() === 'douyin';
+  }
+
+  // need() 返回 true 表示需要桌面应用 -> 锁定
+  var RULES = [
+    { onclick: 'goBingoMaker()', need: function () { return true; } },
+    { onclick: 'setLiveCaptureMode(2)', need: function () { return true; } },
+    { onclick: 'confirmLiveId()', need: confirmNeedsBackend }
+  ];
+
+  // ---------- 悬停提示 ----------
+  var tip = document.createElement('div');
+  tip.id = 'standaloneLockTip';
+  tip.textContent = TIP_TEXT;
+  document.body.appendChild(tip);
+
+  function showTip(el) {
+    tip.classList.add('is-visible');
+    var r = el.getBoundingClientRect();
+    var top = r.top - tip.offsetHeight - 8;
+    if (top < 4) top = r.bottom + 8;
+    var left = r.left + (r.width - tip.offsetWidth) / 2;
+    if (left < 4) left = 4;
+    var maxLeft = window.innerWidth - tip.offsetWidth - 4;
+    if (left > maxLeft) left = maxLeft;
+    tip.style.top = top + 'px';
+    tip.style.left = left + 'px';
+  }
+  function hideTip() { tip.classList.remove('is-visible'); }
+
+  // ---------- 规则匹配与状态刷新 ----------
+  function ruleFor(el) {
+    var code = (el.getAttribute('onclick') || '').replace(/\s+/g, '');
+    for (var i = 0; i < RULES.length; i++) if (RULES[i].onclick === code) return RULES[i];
+    return null;
+  }
+
+  function applyLock(el, locked) {
+    el.classList.toggle('standalone-locked', locked);
+    if (locked) {
+      el.setAttribute('aria-disabled', 'true');
+      el.removeAttribute('title');
+    } else {
+      el.removeAttribute('aria-disabled');
+    }
+  }
+
+  function refreshLocks() {
+    var all = document.querySelectorAll('[onclick]');
+    for (var i = 0; i < all.length; i++) {
+      var rule = ruleFor(all[i]);
+      if (!rule) continue;
+      var locked;
+      try { locked = !!rule.need(); } catch (e) { locked = true; }
+      applyLock(all[i], locked);
+    }
+  }
+
+  // 绑定锁定元素：悬停时先按最新状态刷新，再决定是否弹提示
+  var governed = [];
+  (function bind() {
+    var all = document.querySelectorAll('[onclick]');
+    for (var i = 0; i < all.length; i++) {
+      (function (el) {
+        if (!ruleFor(el) || el.dataset.standaloneBound === '1') return;
+        el.dataset.standaloneBound = '1';
+        governed.push(el);
+        el.addEventListener('mouseenter', function () {
+          refreshLocks();
+          if (el.classList.contains('standalone-locked')) showTip(el); else hideTip();
+        });
+        el.addEventListener('mousemove', function () {
+          if (el.classList.contains('standalone-locked')) showTip(el);
+        });
+        el.addEventListener('mouseleave', hideTip);
+        el.addEventListener('focus', function () {
+          refreshLocks();
+          if (el.classList.contains('standalone-locked')) showTip(el); else hideTip();
+        });
+        el.addEventListener('blur', hideTip);
+      })(all[i]);
+    }
+  })();
+
+  // 状态变化后刷新：模式切换、输入框内容变化、弹窗打开
+  var input = document.getElementById('liveIdInput');
+  if (input) {
+    input.addEventListener('input', refreshLocks);
+    input.addEventListener('change', refreshLocks);
+  }
+  ['setLiveCaptureMode', 'showLiveModal'].forEach(function (name) {
+    var orig = window[name];
+    if (typeof orig !== 'function') return;
+    window[name] = function () {
+      var r = orig.apply(this, arguments);
+      refreshLocks();
+      return r;
+    };
+  });
+
+  // ---------- 拦截：鼠标点击 ----------
+  document.addEventListener('click', function (e) {
+    var el = e.target && e.target.closest ? e.target.closest('[onclick]') : null;
+    if (!el) return;
+    var rule = ruleFor(el);
+    if (!rule) return;
+    var locked;
+    try { locked = !!rule.need(); } catch (err) { locked = true; }
+    if (!locked) return; // 实时求值：此刻不需要后端就放行
+    applyLock(el, true);
+    e.preventDefault();
+    e.stopPropagation();
+    showTip(el);
+  }, true);
+
+  // ---------- 拦截：键盘 Enter / Space ----------
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    var el = e.target && e.target.closest ? e.target.closest('[onclick]') : null;
+    if (!el) return;
+    var rule = ruleFor(el);
+    if (!rule) return;
+    var locked;
+    try { locked = !!rule.need(); } catch (err) { locked = true; }
+    if (!locked) return;
+    e.preventDefault();
+    e.stopPropagation();
+    showTip(el);
+  }, true);
+
+  // ---------- 直播设置弹窗内补一条说明 ----------
+  var modal = document.querySelector('#liveModal .modal');
+  if (modal) {
+    var notice = document.createElement('p');
+    notice.className = 'standalone-notice';
+    notice.textContent = '网页独立版已默认切到「模式一：B站播放器」，可用 B站直播、本地采集、裁切、'
+      + '记分、计时、骰子、备忘等功能。抖音采集（模式二）与 Bingo Maker 需要桌面应用，相关按钮已锁定。';
+    var btns = modal.querySelector('.modal-buttons');
+    if (btns) modal.insertBefore(notice, btns); else modal.appendChild(notice);
+  }
+
+  refreshLocks();
+})();
+</script>
 </body>
 </html>
