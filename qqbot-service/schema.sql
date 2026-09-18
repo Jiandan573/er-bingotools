@@ -14,3 +14,9 @@ CREATE TABLE IF NOT EXISTS bingotools_match_events (
 );
 -- 浏览器不直接访问比赛表；由服务器数据库连接写入。
 ALTER TABLE bingotools_match_events ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE IF NOT EXISTS bingotools_live_matches (
+  id TEXT PRIMARY KEY,
+  data JSONB NOT NULL
+);
+ALTER TABLE bingotools_live_matches ENABLE ROW LEVEL SECURITY;
