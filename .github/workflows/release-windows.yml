@@ -1,0 +1,126 @@
+name: Windows release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release tag (for example v17.1.0)
+        required: true
+        default: v17.1.0
+  push:
+    branches: [master]
+    paths:
+      - release/desktop-qqbot.patch
+      - .github/workflows/release-windows.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: windows-release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.ref == 'refs/heads/master'
+    runs-on: windows-2022
+    timeout-minutes: 35
+    defaults:
+      run:
+        shell: bash
+    env:
+      RELEASE_VERSION: ${{ inputs.version || 'v17.1.0' }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Prepare reviewed desktop source
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          if git rev-parse "$RELEASE_VERSION" >/dev/null 2>&1; then
+            echo "Tag already exists; use a new version." >&2
+            exit 1
+          fi
+          if test -f release/desktop-qqbot.patch; then
+            git apply --check release/desktop-qqbot.patch
+            git apply release/desktop-qqbot.patch
+            cp frontend/dist/index.html bingotools.html
+          else
+            cp bingotools.html frontend/dist/index.html
+          fi
+          node scripts/make-standalone.mjs
+          gofmt -w internal/app/qqbot.go internal/app/qqbot_test.go
+      - name: Test desktop and bot integration
+        run: |
+          set -euo pipefail
+          npm --prefix qqbot-service ci
+          npm --prefix qqbot-service test
+          go test -short ./...
+          go vet ./...
+      - name: Build Windows executable
+        run: |
+          set -euo pipefail
+          go install github.com/wailsapp/wails/v2/cmd/wails@v2.13.0
+          "$(go env GOPATH)/bin/wails.exe" build -platform windows/amd64 -webview2 embed -trimpath -o "BingoTools-${RELEASE_VERSION}-windows-amd64.exe"
+      - name: Commit exact release source
+        id: source
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bingotools.html frontend/dist/index.html index/bingotools-V17.html scripts/make-standalone.mjs internal/app/qqbot.go internal/app/qqbot_test.go docs README.md qqbot-service
+          if test -f release/desktop-qqbot.patch; then
+            git rm release/desktop-qqbot.patch
+          fi
+          if ! git diff --cached --quiet; then
+            git commit -m "feat: integrate desktop QQ match broadcasts [skip ci]"
+            git push origin HEAD:master
+          fi
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          git tag -a "$RELEASE_VERSION" -m "BingoTools ${RELEASE_VERSION}"
+          git push origin "$RELEASE_VERSION"
+      - name: Package and verify executable
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib, os, pathlib, struct, zipfile
+          version = os.environ['RELEASE_VERSION']
+          filename = f'BingoTools-{version}-windows-amd64.exe'
+          exe = pathlib.Path('build/bin') / filename
+          data = exe.read_bytes()
+          assert data[:2] == b'MZ', 'Not a Windows executable'
+          offset = struct.unpack_from('<I', data, 0x3c)[0]
+          assert data[offset:offset+4] == b'PE\0\0'
+          assert struct.unpack_from('<H', data, offset+4)[0] == 0x8664, 'Not AMD64'
+          assert struct.unpack_from('<H', data, offset+24+68)[0] == 2, 'Not a GUI executable'
+          out = pathlib.Path('release-assets')
+          out.mkdir(exist_ok=True)
+          (out/filename).write_bytes(data)
+          with zipfile.ZipFile(out/f'BingoTools-{version}-windows-amd64.zip','w',zipfile.ZIP_DEFLATED) as z:
+              z.write(exe,filename)
+              z.write('docs/QQ比赛播报使用说明.md','使用说明.md')
+          files = sorted(out.iterdir())
+          (out/'SHA256SUMS.txt').write_text(''.join(hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.name+'\n' for p in files),encoding='utf-8')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-release
+          path: release-assets/*
+          if-no-files-found: error
+      - name: Publish release
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+        run: |
+          set -euo pipefail
+          gh release create "$RELEASE_VERSION" release-assets/* \
+            --verify-tag --target "$SOURCE_SHA" \
+            --title "BingoTools ${RELEASE_VERSION} — QQ 比赛播报桌面版" \
+            --notes-file docs/QQ比赛播报使用说明.md
