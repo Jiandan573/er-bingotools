@@ -22,4 +22,4 @@ services:
       - key: BOT_CLIENT_KEY
         generateValue: true
       - key: ALLOWED_ORIGINS
-        value: http://localhost:8000,http://127.0.0.1:8000,http://localhost:8787,http://127.0.0.1:8787
+        value: http://localhost:8000,http://127.0.0.1:8000,http://localhost:8787,http://127.0.0.1:8787,null
