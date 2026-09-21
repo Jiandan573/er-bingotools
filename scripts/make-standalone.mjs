@@ -1,7 +1,7 @@
 // 生成网页独立版： node scripts/make-standalone.mjs
 //
 // 源（唯一真源）: frontend/dist/index.html   ← 桌面应用内嵌的前端
-// 产物（派生）  : index/index.html           ← 单文件、可脱离桌面应用独立打开
+// 产物（派生）  : index/bingotools-V17.html           ← 单文件、可脱离桌面应用独立打开
 //
 // 派生规则：
 //   1. 摘掉 hls.min.js / flv.min.js 两个外部脚本引用，保证「单文件」自洽；
@@ -14,7 +14,7 @@
 // 锁定：抖音采集（模式二，需 Go 后端取流）、Bingo Maker（外部 html），
 //       以及「确认使用」在抖音来源/模式二下的取流动作。
 //
-// 注意：产物是派生的，不要直接改 index/index.html；改完源文件后重新运行本脚本。
+// 注意：产物是派生的，不要直接改 index/bingotools-V17.html；改完源文件后重新运行本脚本。
 
 import { readFileSync, writeFileSync, mkdirSync, statSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -22,7 +22,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const SRC = resolve(root, 'frontend/dist/index.html');
-const OUT = resolve(root, 'index/index.html');
+const OUT = resolve(root, 'index/bingotools-V17.html');
 
 // 恒锁定：功能在任何情况下都需要外部依赖
 const STATIC_LOCKED = [
@@ -306,7 +306,7 @@ if (!(out.lastIndexOf('<script>', lockJsPos) > styleClose && lockJsPos < out.ind
 }
 
 const kb = (statSync(OUT).size / 1024).toFixed(1);
-console.log('已生成 index/index.html  (' + kb + ' KB)');
+console.log('已生成 index/bingotools-V17.html  (' + kb + ' KB)');
 console.log('  恒锁定: ' + STATIC_LOCKED.join(', '));
 console.log('  条件锁定: ' + DYNAMIC_LOCKED.join(', ') + '  (抖音来源或模式二时)');
 console.log('  保留可用: B站播放器(模式一) / 本地采集 / 裁切 / 直播设置弹窗 / 刷新');
