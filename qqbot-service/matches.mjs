@@ -1,6 +1,14 @@
 import crypto from 'node:crypto';
 
 const error = (message, status = 400) => Object.assign(new Error(message), { status });
+function elapsedSeconds(value, fallback) {
+  if (value === undefined) return Math.max(0, Math.floor(fallback));
+  if (!Number.isSafeInteger(value) || value < 0 || value > 31536000) throw error('比赛时长无效');
+  return value;
+}
+function duration(seconds) {
+  return `${Math.floor(seconds / 3600)}小时${Math.floor(seconds % 3600 / 60)}分${seconds % 60}秒`;
+}
 export function scores(value) {
   if (!value || !Number.isFinite(value.red) || !Number.isFinite(value.blue) ||
       Math.abs(value.red) > 1000000 || Math.abs(value.blue) > 1000000) throw error('红蓝方比分无效');
@@ -90,6 +98,7 @@ export class Matches {
         if (finish) throw error('比分版本过期，请刷新状态后重试', 409);
         return { ok: true, stale: true };
       }
+      row.elapsed_seconds = elapsedSeconds(body.elapsed_seconds, (Date.now() - Date.parse(row.match.started_at)) / 1000);
       row.scores = score; row.revision = body.revision; row.updated_at = new Date().toISOString();
       if (!finish) { await this.save(row); return { ok: true }; }
       row.state = 'ended'; row.ended_at = row.updated_at;
@@ -104,6 +113,7 @@ export class Matches {
       `${ended ? '最终得分' : '当前比分'}：`,
       `红方 ${m.left.name}：${row.scores.red} 分`,
       `蓝方 ${m.right.name}：${row.scores.blue} 分`,
+      `${ended ? '比赛用时' : '比赛已进行（截至同步）'}：${duration(row.elapsed_seconds ?? Math.max(0, Math.floor((Date.parse(row.updated_at) - Date.parse(m.started_at)) / 1000)))}`,
       `比分同步时间：${new Date(row.updated_at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })}（北京时间）`
     ].join('\n');
   }
