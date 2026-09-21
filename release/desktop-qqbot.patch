@@ -1,0 +1,659 @@
+diff --git a/README.md b/README.md
+index e77dde3..f418c53 100644
+--- a/README.md
++++ b/README.md
+@@ -4,6 +4,11 @@ BingoTools 是一款用于 Bingo 直播场景的工具，支持在单个窗口
+ 
+ 本版本将直播播放方式从「iframe 嵌入 B站播放器 / 抖音截屏采集」改造为「通过原生取流逻辑拿到真实直播流地址，经同源反向代理在 `<video>` 中直接播放」，从而绕过浏览器 CORS 与自定义请求头限制，并交付单一可执行文件。
+ 
++## 比赛播报（v17.1.0）
++
++Windows 版已集成比赛计时、QQ 开始/结束通知、比分和用时同步，以及群内 @查询。
++请先阅读 [QQ 比赛播报使用说明](docs/QQ比赛播报使用说明.md)，在全局设置填写 Render 地址和使用密钥。
++
+ ## 功能特性
+ 
+ - **双直播间播放**：支持同时播放左右两个直播间。
+diff --git a/frontend/dist/index.html b/frontend/dist/index.html
+index 9d9d29d..d4b852a 100755
+--- a/frontend/dist/index.html
++++ b/frontend/dist/index.html
+@@ -1129,6 +1129,17 @@ button:hover {filter: brightness(1.1); transform: translateY(-1px);}
+ .btn-reset {background: rgba(var(--team-red-rgb), calc(var(--team-red-a) * var(--surface-btn-a)));}
+ .btn-live {background: rgba(var(--accent-orange-rgb), var(--surface-btn-a));}
+ .btn-maker {background: rgba(255, 193, 7, 0.85); color: #1a1a1a; font-weight: 700;}
++.btn-match {background: #00897b; font-weight: 700;}
++.btn-qq {background: #546e7a; font-weight: 700;}
++.match-status {
++  color: #b0bec5;
++  font-size: 11px;
++  max-width: 145px;
++  overflow: hidden;
++  text-overflow: ellipsis;
++  white-space: nowrap;
++}
++.match-status.is-started {color: #80cbc4; font-weight: 700;}
+ 
+ /* 棋盘 */
+ .grid {
+@@ -1858,6 +1869,16 @@ body.mode-zoom-right .cell-mark svg {
+   margin: -6px 0 14px;
+   line-height: 1.5;
+ }
++.match-error {
++  margin-top: 14px;
++  padding: 9px 10px;
++  border-radius: 6px;
++  background: rgba(229, 57, 53, 0.14);
++  border: 1px solid rgba(239, 83, 80, 0.65);
++  color: #ffcdd2;
++  font-size: 12px;
++  line-height: 1.5;
++}
+ .crop-stage {
+   position: relative;
+   width: 100%;
+@@ -2344,6 +2365,7 @@ input[type="number"].wheel-adjust-active {
+   border: 1px solid #666;
+   flex-shrink: 0;
+ }
++
+ </style>
+ </head>
+ <body>
+@@ -2389,9 +2411,8 @@ input[type="number"].wheel-adjust-active {
+           <div class="zoom-timer-label">计时器</div>
+           <div class="zoom-timer-value zoom-stopwatch-display">00:00:00</div>
+           <div class="zoom-mini-timer-actions">
+-            <button type="button" onclick="startStopwatch()">开始</button>
+-            <button type="button" onclick="pauseStopwatch()">暂停</button>
+-            <button type="button" onclick="resetStopwatch()">重置</button>
++            <button type="button" onclick="showMatchStartModal()">开始比赛</button>
++            <button type="button" onclick="endCurrentMatch()">比赛结束</button>
+           </div>
+         </div>
+       </div>
+@@ -2432,9 +2453,8 @@ input[type="number"].wheel-adjust-active {
+           <div class="zoom-timer-label">计时器</div>
+           <div class="zoom-timer-value zoom-stopwatch-display">00:00:00</div>
+           <div class="zoom-mini-timer-actions">
+-            <button type="button" onclick="startStopwatch()">开始</button>
+-            <button type="button" onclick="pauseStopwatch()">暂停</button>
+-            <button type="button" onclick="resetStopwatch()">重置</button>
++            <button type="button" onclick="showMatchStartModal()">开始比赛</button>
++            <button type="button" onclick="endCurrentMatch()">比赛结束</button>
+           </div>
+         </div>
+       </div>
+@@ -2461,13 +2481,15 @@ input[type="number"].wheel-adjust-active {
+       </div>
+     </div>
+     <div class="timer-box timer-box-stopwatch">
+-      <div class="timer-title">计时器</div>
++      <div class="timer-title">比赛计时</div>
+       <div class="timer-display" id="stopwatch-display">00:00:00</div>
+       <div class="timer-controls">
+-        <button class="timer-btn btn-start" onclick="startStopwatch()">开始</button>
+-        <button class="timer-btn btn-pause" onclick="pauseStopwatch()">暂停</button>
+-        <button class="timer-btn btn-reset" onclick="resetStopwatch()">重置</button>
++        <button class="timer-btn btn-start" id="beginMatchBtn" onclick="showMatchStartModal()">开始比赛</button>
++        <button class="timer-btn btn-reset" id="endMatchBtn" onclick="endCurrentMatch()" disabled>比赛结束</button>
+       </div>
++      <div class="match-status" id="matchStatus" style="white-space:normal;margin-top:8px;">比赛未开始</div>
++      <div id="matchSyncStatus" style="font-size:12px;margin-top:6px;" aria-live="polite"></div>
++      <button type="button" id="endLocalOnlyBtn" class="hide" onclick="endMatchLocally()">仅本地结束</button>
+     </div>
+   </div>
+ 
+@@ -2585,6 +2607,39 @@ input[type="number"].wheel-adjust-active {
+   <button type="button" class="mark-pop-clear" onclick="clearCellMarks()">清空本格标记</button>
+ </div>
+ 
++<!-- 比赛开始 -->
++<div id="matchStartModal" class="modal-overlay modal-hide" style="z-index: 1100;">
++  <div class="modal" style="max-width: 520px;">
++    <div class="modal-title" id="matchStartModalTitle">开始比赛</div>
++    <p class="crop-hint" style="margin: -6px 0 16px;">
++      请输入裁判直播间信息。信息会保存在当前浏览器，下次开始比赛时自动填充。
++    </p>
++    <div class="modal-item" style="margin-bottom: 12px;">
++      <label class="modal-label" for="refereePlatformInput">裁判直播平台</label>
++      <select class="modal-input" id="refereePlatformInput">
++        <option value="bilibili">Bilibili</option>
++        <option value="douyin">抖音</option>
++      </select>
++      <label class="modal-label" for="refereeRoomInput">裁判直播间地址或房间号</label>
++      <input type="text" class="modal-input" id="refereeRoomInput" placeholder="例如：https://live.bilibili.com/123456" autocomplete="off">
++    </div>
++    <div class="modal-item" style="margin-bottom: 12px;">
++      <label class="modal-label" for="refereeTitleInput">裁判</label>
++      <input type="text" class="modal-input" id="refereeTitleInput" placeholder="例如：裁判昵称" autocomplete="off">
++    </div>
++    <div class="set-ui-card" style="margin-top: 14px;">
++      <div class="set-ui-card-label">本次播报内容</div>
++      <div id="matchStartPreview" style="font-size: 12px; color: #bbb; line-height: 1.7;"></div>
++    </div>
++    <div class="match-error hide" id="matchStartError"></div>
++    <div class="modal-buttons">
++      <button type="button" class="modal-btn btn-confirm" id="saveAndStartMatchBtn" onclick="saveAndStartMatch()">保存并开始</button>
++      <button type="button" class="modal-btn btn-theme-blue hide" id="startLocalOnlyBtn" onclick="startMatchLocally()">仅本地开始</button>
++      <button type="button" class="modal-btn btn-cancel" onclick="hideMatchStartModal()">取消</button>
++    </div>
++  </div>
++</div>
++
+ <!-- 直播设置 -->
+ <div id="liveModal" class="modal-overlay modal-hide">
+   <div class="modal" style="max-width: 450px;">
+@@ -2666,6 +2721,25 @@ input[type="number"].wheel-adjust-active {
+         </div>
+       </section>
+ 
++      <section class="set-section">
++        <h3 class="set-section-title">QQ Bot 连接</h3>
++        <div class="set-grid-2">
++          <div class="set-field">
++            <label class="modal-label" for="qqBotServiceUrl">服务地址</label>
++            <input type="url" class="modal-input" id="qqBotServiceUrl" placeholder="https://bingotools-qqbot-api.onrender.com" autocomplete="off">
++          </div>
++          <div class="set-field">
++            <label class="modal-label" for="qqBotClientKey">客户端密钥</label>
++            <input type="password" class="modal-input" id="qqBotClientKey" placeholder="BOT_CLIENT_KEY" autocomplete="off">
++          </div>
++        </div>
++        <div class="set-live-toolbar" style="margin-top: 10px;">
++          <button type="button" class="btn-live btn-set-action" onclick="saveQQBotConfig()">保存 QQ Bot 配置</button>
++
++        </div>
++        <p class="live-capture-hint">填写 Render HTTPS 地址和使用密钥并保存，即可播报比赛，无需启动本地服务。网页和桌面版分别保存配置，不保存 QQ AppSecret。</p>
++      </section>
++
+       <section class="set-section set-section-collapsible is-collapsed" id="scoreRulesSection">
+         <div class="set-section-head">
+           <button type="button" class="set-section-toggle" onclick="toggleSetSection('scoreRulesSection')" aria-expanded="false">
+@@ -3228,6 +3302,22 @@ let liveCaptureMode = 2;
+ // 已保存的直播来源；liveRoomIds 保留给旧配置兼容
+ let liveRoomIds = { 1: '', 2: '' };
+ let liveSources = { 1: createEmptyLiveSource(), 2: createEmptyLiveSource() };
++// 本地 HTML 与后续桌面版本共用云端 Bot API。
++// 使用密钥由使用者自行填写；任何实际密钥都不得写入公开 HTML。
++const QQ_BOT_CONFIG = {
++  serviceUrl: 'https://bingotools-qqbot-api.onrender.com',
++  clientKey: ''
++};
++const QQ_BOT_CONFIG_KEY = 'bingotools_qq_bot_config';
++const REFEREE_INFO_KEY = 'bingotools_referee_info';
++const MATCH_STATE_KEY = 'bingotools_match_state';
++let matchStartedAt = '';
++let matchIdempotencyKey = '';
++let activeMatch = null;
++let pendingMatchPayload = null;
++let scoreSyncBusy = false;
++let endingMatch = false;
++let scoreSyncTimer;
+ // P4: 网络流播放器实例与类型
+ let liveStreamPlayers = { 1: null, 2: null };
+ let liveStreamKinds = { 1: '', 2: '' };
+@@ -4135,6 +4225,336 @@ function loadLiveRoomIds() {
+   if (migrated) saveLiveSources();
+ }
+ 
++function getQQBotConfig() {
++  let saved = {};
++  try {
++    const raw = localStorage.getItem(QQ_BOT_CONFIG_KEY);
++    saved = raw ? JSON.parse(raw) : {};
++  } catch (e) {}
++  return {
++    serviceUrl: String(saved.serviceUrl || QQ_BOT_CONFIG.serviceUrl || '').trim().replace(/\/+$/, ''),
++    clientKey: String(saved.clientKey || QQ_BOT_CONFIG.clientKey || '').trim()
++  };
++}
++
++function syncQQBotConfigForm() {
++  const config = getQQBotConfig();
++  const urlInput = document.getElementById('qqBotServiceUrl');
++  const keyInput = document.getElementById('qqBotClientKey');
++  if (urlInput) urlInput.value = config.serviceUrl;
++  if (keyInput) keyInput.value = config.clientKey;
++}
++
++function saveQQBotConfig() {
++  const serviceUrl = document.getElementById('qqBotServiceUrl').value.trim().replace(/\/+$/, '');
++  const clientKey = document.getElementById('qqBotClientKey').value.trim();
++  if (!serviceUrl) {
++    showToast('请输入 QQ Bot 服务地址');
++    return;
++  }
++  try {
++    const url = new URL(serviceUrl);
++    if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error('invalid protocol');
++  } catch (e) {
++    showToast('QQ Bot 服务地址格式不正确');
++    return;
++  }
++  if (!clientKey) {
++    showToast('请输入 QQ Bot 客户端密钥');
++    return;
++  }
++  try {
++    localStorage.setItem(QQ_BOT_CONFIG_KEY, JSON.stringify({ serviceUrl, clientKey }));
++  } catch (e) {
++    showToast('QQ Bot 配置保存失败');
++    return;
++  }
++  showToast('QQ Bot 服务配置已保存');
++}
++
++async function callQQBot(path, body, options = {}) {
++  const config = getQQBotConfig();
++  if (!config.serviceUrl) throw new Error('请先配置 QQ Bot 服务地址');
++  if (!config.clientKey) throw new Error('请先配置 QQ Bot 客户端密钥');
++
++  const controller = new AbortController();
++  const timeout = setTimeout(() => controller.abort(), 90000);
++  try {
++    let response;
++    const nativeBot = window.go?.app?.App?.CallQQBot;
++    if (typeof nativeBot === 'function') {
++      const result = await nativeBot(config.serviceUrl, config.clientKey, path, JSON.stringify(body || {}), options.idempotencyKey || '');
++      response = { ok: result.status >= 200 && result.status < 300, status: result.status, text: async () => result.body };
++    } else {
++      response = await fetch(config.serviceUrl + path, {
++      method: 'POST',
++      headers: {
++        'Content-Type': 'application/json',
++        Authorization: 'Bearer ' + config.clientKey,
++        ...(options.idempotencyKey ? { 'Idempotency-Key': options.idempotencyKey } : {})
++      },
++      body: body == null ? undefined : JSON.stringify(body),
++      signal: controller.signal
++      });
++    }
++    const raw = await response.text();
++    let data = {};
++    try { data = raw ? JSON.parse(raw) : {}; } catch (e) { data = { error: raw }; }
++    if (!response.ok || data.ok === false) {
++      throw Object.assign(new Error(data.error || data.message || `服务请求失败（${response.status}）`), { status: response.status });
++    }
++    return data;
++  } catch (e) {
++    if (e && e.name === 'AbortError') throw new Error('等待服务超过 90 秒；免费服务可能正在启动。若已提交播报，请先查看 QQ 群确认是否收到，避免重复发送');
++    if (e instanceof TypeError && /fetch|network|load failed/i.test(e.message)) {
++      throw new Error('无法连接 QQ Bot 服务，请检查 Render 地址和网络；直接打开 HTML 时，服务需允许本地文件来源（null）。');
++    }
++    throw e;
++  } finally {
++    clearTimeout(timeout);
++  }
++}
++
++function loadRefereeInfo() {
++  try {
++    const raw = localStorage.getItem(REFEREE_INFO_KEY);
++    if (!raw) return { room: '', title: '' };
++    const parsed = JSON.parse(raw);
++    return {
++      room: String(parsed.room || '').trim(),
++      title: String(parsed.title || '').trim(),
++      platform: parsed.platform === 'douyin' ? 'douyin' : 'bilibili'
++    };
++  } catch (e) {
++    return { room: '', title: '' };
++  }
++}
++
++function saveRefereeInfo(room, title) {
++  const info = {
++    room: String(room || '').trim(),
++    title: String(title || '').trim(),
++    platform: document.getElementById('refereePlatformInput').value
++  };
++  try {
++    localStorage.setItem(REFEREE_INFO_KEY, JSON.stringify(info));
++  } catch (e) {}
++  return info;
++}
++
++function saveActiveMatch() {
++  try { localStorage.setItem(MATCH_STATE_KEY, JSON.stringify({ startedAt: matchStartedAt, active: activeMatch })); } catch(e) {}
++}
++function loadMatchState() {
++  try {
++    const parsed = JSON.parse(localStorage.getItem(MATCH_STATE_KEY) || '{}');
++    activeMatch = parsed.active || null;
++    const pending = JSON.parse(localStorage.getItem('bingotools_pending_start') || 'null');
++    if (pending) { pendingMatchPayload = pending.payload; matchIdempotencyKey = pending.key; }
++    matchStartedAt = activeMatch?.startedAt || '';
++  } catch(e) { activeMatch = null; matchStartedAt = ''; }
++  if (activeMatch && !activeMatch.endedAt && !activeMatch.pendingEnd) {
++    stopwatchSeconds = Math.max(0, Math.floor((Date.now() - Date.parse(matchStartedAt)) / 1000));
++    startStopwatch();
++  } else if (activeMatch) {
++    stopwatchSeconds = activeMatch.elapsedSeconds || 0;
++    updateStopwatchDisplay();
++  }
++  updateMatchStatus();
++}
++function updateMatchStatus() {
++  const running = Boolean(activeMatch && !activeMatch.endedAt);
++  const el = document.getElementById('matchStatus');
++  if (el) {
++    el.textContent = !activeMatch ? '比赛未开始' : activeMatch.endedAt ? '比赛已结束' : activeMatch.local ? '比赛进行中（仅本地）' : '比赛进行中';
++    el.classList.toggle('is-started', running);
++  }
++  document.getElementById('beginMatchBtn').disabled = running || endingMatch;
++  document.getElementById('endMatchBtn').disabled = !running || endingMatch;
++  document.getElementById('endLocalOnlyBtn').classList.toggle('hide', !running || !activeMatch.pendingEnd || endingMatch);
++}
++function currentMatchScores() {
++  return { red: Number(document.getElementById('t1').innerText) || 0, blue: Number(document.getElementById('t2').innerText) || 0 };
++}
++function setMatchStarted(startedAt, id = '', local = false) {
++  matchStartedAt = startedAt;
++  activeMatch = { id, local, startedAt, revision: 0, endedAt: null };
++  clearInterval(stopwatchInterval); stopwatchRunning = false;
++  stopwatchSeconds = Math.max(0, Math.floor((Date.now() - Date.parse(startedAt)) / 1000));
++  startStopwatch(); updateStopwatchDisplay(); saveActiveMatch(); updateMatchStatus();
++}
++async function syncMatchScore() {
++  if (!activeMatch || activeMatch.local || activeMatch.endedAt || activeMatch.pendingEnd || scoreSyncBusy || endingMatch) return;
++  scoreSyncBusy = true;
++  const target = activeMatch;
++  target.revision++; saveActiveMatch();
++  try {
++    await callQQBot('/api/v1/matches/score', { match_id: target.id, revision: target.revision, scores: currentMatchScores(), elapsed_seconds: stopwatchSeconds });
++    document.getElementById('matchSyncStatus').textContent = '比分已同步 ' + new Date().toLocaleTimeString();
++  } catch(e) {
++    document.getElementById('matchSyncStatus').textContent = '比分同步失败：' + e.message;
++  } finally { scoreSyncBusy = false; }
++}
++setInterval(syncMatchScore, 15000);
++async function endCurrentMatch() {
++  if (!activeMatch || activeMatch.endedAt || endingMatch) return;
++  const score = activeMatch.pendingEnd?.scores || currentMatchScores();
++  if (!confirm(`确认结束比赛？最终比分：红方 ${score.red}，蓝方 ${score.blue}。`)) return;
++  endingMatch = true; updateMatchStatus();
++  pauseStopwatch();
++  activeMatch.elapsedSeconds = stopwatchSeconds;
++  activeMatch.pendingEnd ||= { match_id: activeMatch.id, scores: score, revision: ++activeMatch.revision, elapsed_seconds: stopwatchSeconds };
++  saveActiveMatch();
++  try {
++    if (!activeMatch.local) await callQQBot('/api/v1/matches/end', activeMatch.pendingEnd);
++    activeMatch.endedAt = new Date().toISOString(); saveActiveMatch();
++    document.getElementById('matchSyncStatus').textContent = activeMatch.local ? '已在本地结束' : '最终比分已发送到 QQ 群';
++    showToast(activeMatch.local ? '比赛已在本地结束' : '比赛结束，最终比分已播报');
++  } catch(e) {
++    document.getElementById('matchSyncStatus').textContent = '结束通知未确认：' + e.message + '。请核对 QQ 群后重试，最终比分已锁定。';
++  } finally { endingMatch = false; updateMatchStatus(); }
++}
++
++function endMatchLocally() {
++  if (!activeMatch || activeMatch.endedAt || endingMatch) return;
++  if (!confirm('仅结束本地比赛，不补发 QQ 通知。云端若仍有记录，群查询可能继续显示该比赛。确认继续？')) return;
++  pauseStopwatch();
++  activeMatch.elapsedSeconds = stopwatchSeconds;
++  activeMatch.endedAt = new Date().toISOString();
++  saveActiveMatch(); updateMatchStatus();
++  document.getElementById('matchSyncStatus').textContent = '已仅本地结束，QQ 结束通知未确认';
++}
++
++function getParticipantPayload(side) {
++  const source = normalizeLiveSource(liveSources[side]);
++  return {
++    name: document.getElementById(side === 1 ? 'redName' : 'blueName').innerText.trim() || (side === 1 ? '红方' : '蓝方'),
++    platform: source.type || 'unknown',
++    room: source.value || '',
++    title: ''
++  };
++}
++
++function buildMatchStartPayload(refereeRoom, refereeTitle) {
++  return {
++    started_at: new Date().toISOString(),
++    referee: {
++      room: String(refereeRoom || '').trim(),
++      title: String(refereeTitle || '').trim(),
++      platform: document.getElementById('refereePlatformInput').value
++    },
++    left: getParticipantPayload(1),
++    right: getParticipantPayload(2)
++  };
++}
++
++function updateMatchStartPreview() {
++  const preview = document.getElementById('matchStartPreview');
++  if (!preview) return;
++  const left = pendingMatchPayload?.left || getParticipantPayload(1);
++  const right = pendingMatchPayload?.right || getParticipantPayload(2);
++  const label = (name, participant) => {
++    const room = participant.room ? `${participant.platform} ${participant.room}` : '未设置直播间';
++    return `${name}：${participant.name} · ${room}`;
++  };
++  preview.textContent = [
++    label('红方', left),
++    label('蓝方', right)
++  ].join(' · ');
++}
++
++function showMatchStartError(message) {
++  const el = document.getElementById('matchStartError');
++  if (!el) return;
++  el.textContent = message || '';
++  el.classList.toggle('hide', !message);
++}
++
++function showMatchStartModal() {
++  if (activeMatch && !activeMatch.endedAt) return;
++  document.getElementById('matchStartModalTitle').textContent = '开始比赛';
++  document.getElementById('saveAndStartMatchBtn').textContent = '保存并开始';
++  const info = pendingMatchPayload?.referee || loadRefereeInfo();
++  document.getElementById('refereePlatformInput').value = info.platform || 'bilibili';
++  document.getElementById('refereeRoomInput').value = info.room;
++  document.getElementById('refereeTitleInput').value = info.title;
++  document.getElementById('startLocalOnlyBtn').classList.add('hide');
++  if (!pendingMatchPayload) matchIdempotencyKey = (window.crypto && typeof window.crypto.randomUUID === 'function')
++    ? window.crypto.randomUUID()
++    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
++  showMatchStartError(pendingMatchPayload ? '上次开始请求尚未确认。重试将使用上次的比赛信息，避免重复播报。' : '');
++  updateMatchStartPreview();
++  document.getElementById('matchStartModal').classList.remove('modal-hide');
++}
++
++function hideMatchStartModal() {
++  document.getElementById('matchStartModal').classList.add('modal-hide');
++  showMatchStartError('');
++}
++
++function validateRefereeForm() {
++  const room = document.getElementById('refereeRoomInput').value.trim();
++  const title = document.getElementById('refereeTitleInput').value.trim();
++  if (!room) {
++    showMatchStartError('请输入裁判直播间地址或房间号');
++    document.getElementById('refereeRoomInput').focus();
++    return null;
++  }
++  if (!title) {
++    showMatchStartError('请输入裁判');
++    document.getElementById('refereeTitleInput').focus();
++    return null;
++  }
++  return { room, title };
++}
++
++function startMatchLocally() {
++  const referee = validateRefereeForm();
++  if (!referee) return;
++  saveRefereeInfo(referee.room, referee.title);
++  setMatchStarted(new Date().toISOString(), '', true);
++  pendingMatchPayload = null;
++  localStorage.removeItem('bingotools_pending_start');
++  hideMatchStartModal();
++  showToast('比赛已在本地开始');
++}
++
++async function saveAndStartMatch() {
++  const referee = validateRefereeForm();
++  if (!referee) return;
++  const button = document.getElementById('saveAndStartMatchBtn');
++  button.disabled = true;
++  button.textContent = '正在发送...';
++  showMatchStartError('');
++  saveRefereeInfo(referee.room, referee.title);
++
++  pendingMatchPayload ||= { ...buildMatchStartPayload(referee.room, referee.title), scores: currentMatchScores() };
++  const payload = pendingMatchPayload;
++  try { localStorage.setItem('bingotools_pending_start', JSON.stringify({ key: matchIdempotencyKey, payload })); } catch(e) {}
++  clearInterval(stopwatchInterval); stopwatchRunning = false;
++  stopwatchSeconds = Math.max(0, Math.floor((Date.now() - Date.parse(payload.started_at)) / 1000));
++  startStopwatch(); updateStopwatchDisplay();
++  try {
++    const result = await callQQBot('/api/v1/matches/start', payload, { idempotencyKey: matchIdempotencyKey });
++    setMatchStarted(payload.started_at, result.match_id);
++    pendingMatchPayload = null;
++    localStorage.removeItem('bingotools_pending_start');
++    hideMatchStartModal();
++    showToast('比赛已开始，计时器已启动，已发送到 QQ 群');
++  } catch(e) {
++    pauseStopwatch();
++    if ([400, 401, 403].includes(e.status)) {
++      pendingMatchPayload = null;
++      try { localStorage.removeItem('bingotools_pending_start'); } catch (_) {}
++    }
++    showMatchStartError('QQ 播报失败：' + e.message + '。请先核对 QQ 群，也可选择仅本地开始。');
++    document.getElementById('startLocalOnlyBtn').classList.remove('hide');
++  } finally {
++    button.disabled = false;
++    button.textContent = '保存并开始';
++  }
++}
++
+ function setLiveTip(side, line1, line2) {
+   const tip = document.getElementById('tip' + side);
+   if (!tip) return;
+@@ -4597,6 +5017,8 @@ window.onload = function() {
+   loadSavedTablesList();
+   loadLiveRoomIds();
+   loadLiveCaptureMode();
++  loadRefereeInfo();
++  loadMatchState();
+   syncLiveCaptureModeUI();
+   loadLiveCrop();
+   loadZoomMiniSource();
+@@ -6678,6 +7100,8 @@ function refreshScore() {
+   const total2 = Math.floor(base2) + computeGlobalBingoPoints(false) + computeSideSettlePoints(false) + extra2;
+   document.getElementById('t1').innerText = total1;
+   document.getElementById('t2').innerText = total2;
++  clearTimeout(scoreSyncTimer);
++  scoreSyncTimer = setTimeout(syncMatchScore, 1000);
+   const x1 = document.getElementById('x1');
+   const x2 = document.getElementById('x2');
+   if (x1) x1.innerText = extra1;
+@@ -6791,6 +7215,7 @@ function applyScorePreset(n) {
+ function showSetModal() {
+   loadSettings();
+   syncSettingsFormFromState();
++  syncQQBotConfigForm();
+   document.getElementById('setModal').classList.remove('modal-hide');
+ }
+ 
+@@ -7444,7 +7869,8 @@ function syncZoomTimerDisplays() {
+ function startStopwatch() {
+   if (stopwatchRunning) return;
+   stopwatchRunning = true;
+-  stopwatchInterval = setInterval(() => {stopwatchSeconds++; updateStopwatchDisplay();}, 1000);
++  const anchor = Date.now() - stopwatchSeconds * 1000;
++  stopwatchInterval = setInterval(() => {stopwatchSeconds = Math.floor((Date.now() - anchor) / 1000); updateStopwatchDisplay();}, 1000);
+   showToast('计时器已开始');
+ }
+ // 暂停秒表
+@@ -7545,6 +7971,9 @@ document.addEventListener('keydown', (e) => {
+   }
+ });
+ </script>
++
++
++
+ <script src="hls.min.js"></script>
+ <script src="flv.min.js"></script>
+ </body>
+diff --git a/qqbot-service/server.mjs b/qqbot-service/server.mjs
+index bddd981..f211088 100644
+--- a/qqbot-service/server.mjs
++++ b/qqbot-service/server.mjs
+@@ -286,8 +286,7 @@ export function liveRoomAddress(platform, room) {
+ export function formatMatchMessage(match, { test = false } = {}) {
+   const participantLines = (label, participant) => [
+     `${label}：${participant.name}`,
+-    `直播间：${liveRoomAddress(participant.platform, participant.room)}`,
+-    `直播间标题：${participant.title || '未填写'}`
++    `直播间：${liveRoomAddress(participant.platform, participant.room)}`
+   ];
+ 
+   return [
+@@ -295,7 +294,7 @@ export function formatMatchMessage(match, { test = false } = {}) {
+     `比赛时间：${formatDateTime(match.started_at)}（北京时间）`,
+     '',
+     `裁判直播间：${liveRoomAddress(match.referee.platform || 'bilibili', match.referee.room)}`,
+-    `裁判直播间标题：${match.referee.title}`,
++    `裁判：${match.referee.title}`,
+     '',
+     ...participantLines('红方', match.left),
+     '',
+diff --git a/qqbot-service/server.test.mjs b/qqbot-service/server.test.mjs
+index 0d6d4a0..6cb19b9 100644
+--- a/qqbot-service/server.test.mjs
++++ b/qqbot-service/server.test.mjs
+@@ -23,10 +23,8 @@ test('formatMatchMessage contains referee and players without rules or match id'
+   assert.match(message, /https:\/\/live.douyin.com\/222/);
+   assert.match(message, /红方：红方选手/);
+   assert.match(message, /蓝方：蓝方选手/);
+-  assert.match(message, /直播间标题：红方直播/);
+-  assert.match(message, /直播间标题：蓝方直播/);
+-  assert.match(message, /裁判直播间标题：裁判直播/);
+-  assert.doesNotMatch(message, /rules|比赛编号|match_id/);
++  assert.match(message, /裁判：裁判直播/);
++  assert.doesNotMatch(message, /rules|比赛编号|match_id|直播间标题|红方直播|蓝方直播/);
+   const preview = formatMatchMessage(match, { test: true });
+   assert.match(preview, /比赛播报（测试）/);
+   assert.doesNotMatch(preview, /比赛开始/);
+diff --git a/scripts/make-standalone.mjs b/scripts/make-standalone.mjs
+index 455081b..f0382df 100644
+--- a/scripts/make-standalone.mjs
++++ b/scripts/make-standalone.mjs
+@@ -1,7 +1,7 @@
+ // 生成网页独立版： node scripts/make-standalone.mjs
+ //
+ // 源（唯一真源）: frontend/dist/index.html   ← 桌面应用内嵌的前端
+-// 产物（派生）  : index/index.html           ← 单文件、可脱离桌面应用独立打开
++// 产物（派生）  : index/bingotools-V17.html           ← 单文件、可脱离桌面应用独立打开
+ //
+ // 派生规则：
+ //   1. 摘掉 hls.min.js / flv.min.js 两个外部脚本引用，保证「单文件」自洽；
+@@ -14,7 +14,7 @@
+ // 锁定：抖音采集（模式二，需 Go 后端取流）、Bingo Maker（外部 html），
+ //       以及「确认使用」在抖音来源/模式二下的取流动作。
+ //
+-// 注意：产物是派生的，不要直接改 index/index.html；改完源文件后重新运行本脚本。
++// 注意：产物是派生的，不要直接改 index/bingotools-V17.html；改完源文件后重新运行本脚本。
+ 
+ import { readFileSync, writeFileSync, mkdirSync, statSync } from 'node:fs';
+ import { dirname, resolve } from 'node:path';
+@@ -22,7 +22,7 @@ import { fileURLToPath } from 'node:url';
+ 
+ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+ const SRC = resolve(root, 'frontend/dist/index.html');
+-const OUT = resolve(root, 'index/index.html');
++const OUT = resolve(root, 'index/bingotools-V17.html');
+ 
+ // 恒锁定：功能在任何情况下都需要外部依赖
+ const STATIC_LOCKED = [
+@@ -306,7 +306,7 @@ if (!(out.lastIndexOf('<script>', lockJsPos) > styleClose && lockJsPos < out.ind
+ }
+ 
+ const kb = (statSync(OUT).size / 1024).toFixed(1);
+-console.log('已生成 index/index.html  (' + kb + ' KB)');
++console.log('已生成 index/bingotools-V17.html  (' + kb + ' KB)');
+ console.log('  恒锁定: ' + STATIC_LOCKED.join(', '));
+ console.log('  条件锁定: ' + DYNAMIC_LOCKED.join(', ') + '  (抖音来源或模式二时)');
+ console.log('  保留可用: B站播放器(模式一) / 本地采集 / 裁切 / 直播设置弹窗 / 刷新');
