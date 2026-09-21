@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 // 独立测试进程模拟 Render，不读取用户本地密钥，也不连接 QQ / Supabase。
 Object.assign(process.env, {
   RENDER: 'true', RENDER_EXTERNAL_URL: 'https://bingo.example.test',
-  PUBLIC_BASE_URL: '', ALLOWED_ORIGINS: 'http://localhost:8000',
+  PUBLIC_BASE_URL: '', ALLOWED_ORIGINS: 'http://localhost:8000,null',
   QQ_APP_ID: 'mock-app', QQ_APP_SECRET: 'mock-app-secret',
   QQ_GROUP_OPENID: 'mock-group', BOT_CLIENT_KEY: 'mock-client-key',
   QQ_EVENTS_ENABLED: 'false', SUPABASE_DATABASE_URL: '', DATABASE_URL: ''
@@ -50,6 +50,14 @@ test('API-only hosting, authenticated sends, local HTML CORS and in-memory match
   assert.equal(preflight.status, 204);
   assert.equal(preflight.headers.get('access-control-allow-origin'), headers.Origin);
   assert.equal((await fetch(base + '/health', { headers: { Origin: 'https://untrusted.example' } })).status, 403);
+  const filePreflight = await fetch(base + '/api/v1/matches/score', {
+    method: 'OPTIONS', headers: { Origin:'null', 'Access-Control-Request-Method':'POST', 'Access-Control-Request-Headers':'authorization,content-type' }
+  });
+  assert.equal(filePreflight.status,204);
+  assert.equal(filePreflight.headers.get('access-control-allow-origin'),'null');
+  assert.equal((await fetch(base + '/api/v1/matches/score', {
+    method:'POST', headers:{Origin:'null','Content-Type':'application/json'}, body:'{}'
+  })).status,401);
 
   const body = JSON.stringify({ referee: { room: '123', title: 'test' }, scores: { red: 0, blue: 0 } });
   const sendTest = () => fetch(base + '/api/v1/qq/test', { method: 'POST', headers, body });
@@ -64,7 +72,7 @@ test('API-only hosting, authenticated sends, local HTML CORS and in-memory match
   assert.equal((await match.json()).match_id, 'cloud-match-123');
   assert.equal(sent, 2);
   const score = await fetch(base + '/api/v1/matches/score', {
-    method: 'POST', headers, body: JSON.stringify({ match_id:'cloud-match-123', revision:1, scores:{red:10,blue:12} })
+    method: 'POST', headers: {...headers, Origin:'null'}, body: JSON.stringify({ match_id:'cloud-match-123', revision:1, scores:{red:10,blue:12}, elapsed_seconds:3661 })
   });
   assert.equal(score.status, 200);
   const end = await fetch(base + '/api/v1/matches/end', {
