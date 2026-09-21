@@ -23,7 +23,10 @@ test('formatMatchMessage contains referee and players without rules or match id'
   assert.match(message, /https:\/\/live.douyin.com\/222/);
   assert.match(message, /红方：红方选手/);
   assert.match(message, /蓝方：蓝方选手/);
-  assert.doesNotMatch(message, /rules|比赛编号|match_id|标题/);
+  assert.match(message, /直播间标题：红方直播/);
+  assert.match(message, /直播间标题：蓝方直播/);
+  assert.match(message, /裁判直播间标题：裁判直播/);
+  assert.doesNotMatch(message, /rules|比赛编号|match_id/);
   const preview = formatMatchMessage(match, { test: true });
   assert.match(preview, /比赛播报（测试）/);
   assert.doesNotMatch(preview, /比赛开始/);
