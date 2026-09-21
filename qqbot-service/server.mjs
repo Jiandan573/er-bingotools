@@ -286,7 +286,8 @@ export function liveRoomAddress(platform, room) {
 export function formatMatchMessage(match, { test = false } = {}) {
   const participantLines = (label, participant) => [
     `${label}：${participant.name}`,
-    `直播间：${liveRoomAddress(participant.platform, participant.room)}`
+    `直播间：${liveRoomAddress(participant.platform, participant.room)}`,
+    `直播间标题：${participant.title || '未填写'}`
   ];
 
   return [
@@ -294,6 +295,7 @@ export function formatMatchMessage(match, { test = false } = {}) {
     `比赛时间：${formatDateTime(match.started_at)}（北京时间）`,
     '',
     `裁判直播间：${liveRoomAddress(match.referee.platform || 'bilibili', match.referee.room)}`,
+    `裁判直播间标题：${match.referee.title}`,
     '',
     ...participantLines('红方', match.left),
     '',
