@@ -1,0 +1,10 @@
+import { readFileSync, writeFileSync } from 'node:fs';
+const root = new URL('../', import.meta.url);
+const read = path => readFileSync(new URL(path, root), 'utf8');
+const client = read('frontend/room/client.js').replace('  // BOARD_ADAPTER', read('frontend/room/board.js'));
+let html = read('bingotools.html');
+const block = `<!-- ROOM_V2_START -->\n<script>\n${client}\n</script>\n<!-- ROOM_V2_END -->`;
+if (html.includes('<!-- ROOM_V2_START -->')) html = html.replace(/<!-- ROOM_V2_START -->[\s\S]*?<!-- ROOM_V2_END -->/, () => block);
+else html = html.replace('</body>', block + '\n</body>');
+writeFileSync(new URL('bingotools.html', root), html);
+writeFileSync(new URL('frontend/dist/index.html', root), html);

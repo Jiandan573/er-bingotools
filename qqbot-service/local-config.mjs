@@ -5,7 +5,7 @@ try {
   const config = process.env.RENDER ? {} :
     JSON.parse(await readFile(new URL('./.local-config.json', import.meta.url), 'utf8'));
   for (const key of ['QQ_APP_ID', 'QQ_APP_SECRET', 'QQ_GROUP_OPENID', 'BOT_CLIENT_KEY',
-    'QQ_EVENTS_ENABLED', 'HOST', 'PORT', 'ALLOWED_ORIGINS']) {
+    'QQ_EVENTS_ENABLED', 'HOST', 'PORT', 'ALLOWED_ORIGINS', 'BINGOTOOLS_DEV_CODE']) {
     if (typeof config[key] === 'string' && process.env[key] === undefined) process.env[key] = config[key];
   }
 } catch (error) {

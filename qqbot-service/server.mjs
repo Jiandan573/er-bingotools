@@ -1,6 +1,7 @@
 import './local-config.mjs';
 import { QQEvents } from './events.mjs';
 import { Matches } from './matches.mjs';
+import { Rooms, NotificationQueue } from './rooms.mjs';
 import http from 'node:http';
 import crypto from 'node:crypto';
 import { URL } from 'node:url';
@@ -25,7 +26,7 @@ let cachedAccessToken = '';
 let accessTokenExpiresAt = 0;
 let tokenRequest;
 const allowedOrigins = new Set((process.env.ALLOWED_ORIGINS ||
-  'http://localhost:8000,http://127.0.0.1:8000,http://localhost:8787,http://127.0.0.1:8787').split(',').map(s => s.trim()).filter(Boolean));
+  'null,http://localhost:8000,http://127.0.0.1:8000,http://localhost:8787,http://127.0.0.1:8787').split(',').map(s => s.trim()).filter(Boolean));
 let sendWindowStarted = Date.now();
 let sendsInWindow = 0;
 
@@ -50,7 +51,9 @@ const qqEvents = new QQEvents({
   onMention: async event => {
     if (event.group_openid !== QQ_GROUP_OPENID) return;
     try {
-      await sendGroupMessage(await matches.current(), { msg_id: event.id, msg_seq: 1 });
+      const legacy = await matches.current();
+      const current = rooms.current();
+      await sendGroupMessage([current, legacy === '目前没有正在进行的比赛。' && current ? '' : legacy].filter(Boolean).join('\n\n').slice(0, 3500), { msg_id: event.id, msg_seq: 1 });
     } catch (error) {
       console.error('[qq-query]', safeError(error.message));
     }
@@ -63,6 +66,13 @@ const matches = new Matches({
   send: text => sendGroupMessage(text),
   normalize: validateMatchPayload, formatStart: formatMatchMessage,
   address: liveRoomAddress, cleanError: safeError
+});
+const notificationQueue = new NotificationQueue(sendGroupMessageNow);
+const rooms = new Rooms({
+  send: text => sendGroupMessage(text),
+  normalize: validateMatchPayload, formatStart: formatMatchMessage,
+  address: liveRoomAddress, cleanError: safeError,
+  devCode: String(process.env.BINGOTOOLS_DEV_CODE || '')
 });
 
 const JSON_HEADERS = {
@@ -89,7 +99,7 @@ function sendError(res, status, message, details = {}) {
 
 function safeError(value) {
   let result = String(value || 'request failed');
-  for (const secret of [QQ_APP_SECRET, BOT_CLIENT_KEY, cachedAccessToken, DATABASE_URL]) {
+  for (const secret of [QQ_APP_SECRET, BOT_CLIENT_KEY, cachedAccessToken, DATABASE_URL, process.env.BINGOTOOLS_DEV_CODE]) {
     if (secret) result = result.split(secret).join('[redacted]');
   }
   return result.slice(0, 500);
@@ -108,12 +118,12 @@ function isAuthorized(req) {
   return left.length === right.length && crypto.timingSafeEqual(left, right);
 }
 
-async function readJsonBody(req) {
+async function readJsonBody(req, limit = 16384) {
   const chunks = [];
   let size = 0;
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > 16384) {
+    if (size > limit) {
       throw fail('request body is too large', 413);
     }
     chunks.push(chunk);
@@ -187,7 +197,10 @@ async function getAccessToken() {
   try { return await tokenRequest; } finally { tokenRequest = null; }
 }
 
-async function sendGroupMessage(content, reply = {}) {
+function sendGroupMessage(content, reply = {}) {
+  return notificationQueue.enqueue(content, reply);
+}
+async function sendGroupMessageNow(content, reply = {}) {
   if (!QQ_GROUP_OPENID) {
     throw fail('QQ_GROUP_OPENID is not configured', 503);
   }
@@ -359,7 +372,7 @@ async function handleRequest(req, res) {
   if (req.method === 'GET' && path === '/') {
     // Render 仅提供 API。HTML 保留在本地，未来由 exe 调用同一接口。
     jsonResponse(res, 200, {
-      ok: true, service: 'bingotools-qqbot-service', mode: 'api-only', health: '/health'
+      ok: true, service: 'bingotools-qqbot-service', version: '17.2.0', mode: 'api-only', health: '/health'
     });
     return;
   }
@@ -368,9 +381,25 @@ async function handleRequest(req, res) {
     jsonResponse(res, 200, {
       ok: true,
       service: 'bingotools-qqbot-service',
-      database: DATABASE_URL ? (databaseReady ? 'ready' : 'error') : 'disabled',
-      qq_configured: Boolean(QQ_APP_ID && QQ_APP_SECRET && QQ_GROUP_OPENID)
+      version: '17.2.0',
+      instance: rooms.instance,
+      qq: qqEvents.status().state
     });
+    return;
+  }
+
+  if (path.startsWith('/api/v2/')) {
+    try {
+      if (req.method !== 'POST') throw fail('请使用 POST', 405);
+      const token = String(req.headers.authorization || '').replace(/^Bearer /, '');
+      // Render terminates traffic at its proxy. Use the rightmost hop, never a
+      // client-supplied leftmost address, for rate limiting.
+      const forwarded = process.env.RENDER === 'true' ? String(req.headers['x-forwarded-for'] || '').split(',').at(-1)?.trim() : '';
+      const result = rooms.handle(path.slice('/api/v2'.length), await readJsonBody(req, 131072), token, forwarded || req.socket.remoteAddress);
+      jsonResponse(res, 200, { ok: true, instance: rooms.instance, serverTime: Date.now(), ...result });
+    } catch (error) {
+      sendError(res, error.status || 400, error.message, { instance: rooms.instance });
+    }
     return;
   }
 
@@ -413,13 +442,17 @@ async function handleRequest(req, res) {
 }
 
 export function createServer() {
-  return http.createServer((req, res) => {
+  const timer = setInterval(() => rooms.tick(), 250);
+  timer.unref();
+  const server = http.createServer((req, res) => {
     handleRequest(req, res).catch((error) => {
       console.error('[server] unhandled request error:', error);
       if (!res.headersSent) sendError(res, 500, 'internal server error');
       else res.end();
     });
   });
+  server.on('close', () => clearInterval(timer));
+  return server;
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
@@ -434,8 +467,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   server.listen(PORT, HOST, () => {
     console.log(`QQ bot service listening on http://${HOST}:${PORT}`);
     if (process.env.QQ_EVENTS_ENABLED === 'true') {
-      if (QQ_APP_ID && QQ_APP_SECRET && BOT_CLIENT_KEY) qqEvents.start();
-      else console.log('[qq-events] 未启动：请先填写 AppID、AppSecret 和 BOT_CLIENT_KEY');
+      if (QQ_APP_ID && QQ_APP_SECRET) qqEvents.start();
+      else console.log('[qq-events] 未启动：请先填写 AppID 和 AppSecret');
     }
   });
 }

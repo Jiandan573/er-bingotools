@@ -51,3 +51,41 @@ func TestQQBotRejectsUnsafeRequestsAndRedirects(t *testing.T) {
 		t.Error("redirect must be reported to user")
 	}
 }
+
+func TestRoomBridgePublicSessionAndAuthenticatedUpdate(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/health":
+			if r.Method != http.MethodGet {
+				t.Error("health must use GET")
+			}
+		case "/api/v2/session":
+			if r.Header.Get("Authorization") != "" {
+				t.Error("public session must not require a user-entered key")
+			}
+		case "/api/v2/update":
+			if r.Header.Get("Authorization") != "Bearer session-token" || r.Method != http.MethodPost {
+				t.Error("room update requires the automatic session credential")
+			}
+		default:
+			t.Error("unexpected route")
+		}
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+	for _, path := range []string{"/health", "/api/v2/session", "/api/v2/update"} {
+		token := ""
+		if path == "/api/v2/update" {
+			token = "session-token"
+		}
+		result, err := callRoomService(nil, server.URL, token, path, `{}`)
+		if err != nil || result.Status != 200 || result.Body != `{"ok":true}` {
+			t.Fatalf("%s: %+v %v", path, result, err)
+		}
+	}
+	for _, path := range []string{"/api/v2/../secret", "/api/v2/proxy", "/api/v2/session?secret=x", "/api/v1/qq/test"} {
+		if _, err := callRoomService(nil, server.URL, "", path, `{}`); err == nil {
+			t.Errorf("accepted unsupported room route: %s", path)
+		}
+	}
+}

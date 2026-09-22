@@ -51,6 +51,17 @@ test('desktop source includes native live playback and has no standalone lock',(
   assert.doesNotMatch(desktop,/standaloneLockTip|standalone-locked/);
 });
 
+test('public room module is embedded identically and keeps one main match control', () => {
+  const client = readFileSync(new URL('../frontend/room/client.js', import.meta.url), 'utf8')
+    .replace('  // BOARD_ADAPTER', readFileSync(new URL('../frontend/room/board.js', import.meta.url), 'utf8'));
+  assert.ok(html.includes(client));
+  assert.equal((html.match(/id="beginMatchBtn"/g) || []).length, 1);
+  assert.doesNotMatch(html, /id="btDebugBtn"|id="btStartMatchBtn"|id="btEndMatchBtn"/);
+  assert.match(client, /CallRoomService/);
+  assert.match(client, /api\('\/session'\)/);
+  assert.match(client, /服务器已重启/);
+});
+
 test('HTML reads displayed totals, syncs without announcing, and locks final score after a failed end', async () => {
   const els = new Map();
   const calls = [];

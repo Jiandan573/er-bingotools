@@ -80,7 +80,13 @@ test('API-only hosting, authenticated sends, local HTML CORS and in-memory match
   });
   assert.equal(end.status,200);
   assert.equal(sent,3);
-  for (let i = 3; i < 12; i++) assert.equal((await sendTest()).status, 200);
-  assert.equal((await sendTest()).status, 429);
-  assert.equal(sent, 12);
+  const publicSession = await fetch(base + '/api/v2/session', { method: 'POST', headers: { Origin: 'null' }, body: '{}' });
+  assert.equal(publicSession.status, 200);
+  const session = await publicSession.json();
+  assert.ok(session.token);
+  assert.ok(session.instance);
+  assert.equal((await fetch(base + '/api/v2/list', { method: 'POST', body: '{}' })).status, 401);
+  const list = await fetch(base + '/api/v2/list', { method: 'POST', headers: { Authorization: 'Bearer ' + session.token }, body: '{}' });
+  assert.equal(list.status, 200);
+  assert.equal(sent, 3, 'room reads and health checks never send a QQ message');
 });
