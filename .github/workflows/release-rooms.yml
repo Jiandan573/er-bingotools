@@ -1,0 +1,149 @@
+name: Windows rooms release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release tag (for example v17.2.0)
+        required: true
+        default: v17.2.0
+  push:
+    branches: [master]
+    paths:
+      - release/rooms-v172.json.xz.b64
+
+permissions:
+  contents: write
+
+concurrency:
+  group: windows-release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.ref == 'refs/heads/master'
+    runs-on: windows-2022
+    timeout-minutes: 35
+    defaults:
+      run:
+        shell: bash
+    env:
+      RELEASE_VERSION: ${{ inputs.version || 'v17.2.0' }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Preserve source line endings
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Prepare reviewed desktop source
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          if git rev-parse "$RELEASE_VERSION" >/dev/null 2>&1; then
+            echo "Tag already exists; use a new version." >&2
+            exit 1
+          fi
+          if test -f release/rooms-v172.json.xz.b64; then
+            python - <<'PYCODE'
+          import base64, hashlib, json, lzma, pathlib, subprocess
+          raw = lzma.decompress(base64.b64decode(pathlib.Path('release/rooms-v172.json.xz.b64').read_bytes()))
+          assert hashlib.sha256(raw).hexdigest() == 'd54c64b18436a9d988adf84b8f499214892bdf8d5a4387668ff48c8c0597c142'
+          data = json.loads(raw)
+          for name, expected in data['base_sha256'].items():
+              p = pathlib.Path(name)
+              assert not p.is_absolute() and '..' not in p.parts and not name.startswith('.'), name
+              actual = hashlib.sha256(p.read_bytes()).hexdigest() if p.exists() else None
+              assert actual == expected, 'Source changed; rebase before release: ' + name
+          assert set(data['files']).issubset(data['base_sha256'])
+          for name, content in data['files'].items():
+              p = pathlib.Path(name)
+              p.parent.mkdir(parents=True, exist_ok=True)
+              p.write_text(content, encoding='utf-8', newline='')
+          subprocess.run(['git', 'apply', '--check', '-'], input=data['html_patch'].encode(), check=True)
+          subprocess.run(['git', 'apply', '-'], input=data['html_patch'].encode(), check=True)
+          PYCODE
+          fi
+          node scripts/embed-rooms.mjs
+          node scripts/make-standalone.mjs
+          gofmt -w internal/app/qqbot.go internal/app/qqbot_test.go
+      - name: Test desktop and bot integration
+        run: |
+          set -euo pipefail
+          npm --prefix qqbot-service ci
+          npm --prefix qqbot-service test
+          go test -short ./...
+          go vet ./...
+      - name: Verify two browser clients with simulated QQ
+        timeout-minutes: 8
+        run: |
+          set -euo pipefail
+          npm --prefix "$RUNNER_TEMP/room-browser" install --no-save playwright@1.62.1
+          node "$RUNNER_TEMP/room-browser/node_modules/playwright/cli.js" install chromium
+          PLAYWRIGHT_MODULE="$RUNNER_TEMP/room-browser/node_modules/playwright" node scripts/room-browser-test.cjs
+      - name: Build Windows executable
+        run: |
+          set -euo pipefail
+          go install github.com/wailsapp/wails/v2/cmd/wails@v2.13.0
+          "$(go env GOPATH)/bin/wails.exe" build -platform windows/amd64 -webview2 embed -trimpath -o "BingoTools-${RELEASE_VERSION}-windows-amd64.exe"
+      - name: Commit exact release source
+        id: source
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add render.yaml bingotools.html frontend/dist/index.html index/bingotools-V17.html scripts frontend/room internal/app/qqbot.go internal/app/qqbot_test.go docs README.md qqbot-service
+          if test -f release/rooms-v172.json.xz.b64; then
+            git rm release/rooms-v172.json.xz.b64
+          fi
+          if ! git diff --cached --quiet; then
+            git commit -m "feat: integrate public multiplayer rooms and QQ broadcasts [skip ci]"
+            git push origin HEAD:master
+          fi
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          git tag -a "$RELEASE_VERSION" -m "BingoTools ${RELEASE_VERSION}"
+          git push origin "$RELEASE_VERSION"
+      - name: Package and verify executable
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib, os, pathlib, struct, zipfile
+          version = os.environ['RELEASE_VERSION']
+          filename = f'BingoTools-{version}-windows-amd64.exe'
+          exe = pathlib.Path('build/bin') / filename
+          data = exe.read_bytes()
+          assert data[:2] == b'MZ', 'Not a Windows executable'
+          offset = struct.unpack_from('<I', data, 0x3c)[0]
+          assert data[offset:offset+4] == b'PE\0\0'
+          assert struct.unpack_from('<H', data, offset+4)[0] == 0x8664, 'Not AMD64'
+          assert struct.unpack_from('<H', data, offset+24+68)[0] == 2, 'Not a GUI executable'
+          out = pathlib.Path('release-assets')
+          out.mkdir(exist_ok=True)
+          (out/filename).write_bytes(data)
+          with zipfile.ZipFile(out/f'BingoTools-{version}-windows-amd64.zip','w',zipfile.ZIP_DEFLATED) as z:
+              z.write(exe,filename)
+              z.write('docs/QQ比赛播报使用说明.md','使用说明.md')
+          (out/'bingotools-V17.html').write_bytes(pathlib.Path('index/bingotools-V17.html').read_bytes())
+          files = sorted(out.iterdir())
+          (out/'SHA256SUMS.txt').write_text(''.join(hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.name+'\n' for p in files),encoding='utf-8')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-release
+          path: release-assets/*
+          if-no-files-found: error
+      - name: Publish release
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+        run: |
+          set -euo pipefail
+          gh release create "$RELEASE_VERSION" release-assets/* \
+            --verify-tag --target "$SOURCE_SHA" \
+            --title "BingoTools ${RELEASE_VERSION} — 联机房间与公开 QQ 播报" \
+            --notes-file docs/QQ比赛播报使用说明.md
