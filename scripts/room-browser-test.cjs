@@ -28,8 +28,10 @@ async function page(){const context=await browser.newContext({viewport:{width:16
  await guest.locator('#endMatchBtn').click();await guest.waitForFunction(()=>window.BingoRooms.getRoom()?.state==='ended');
  assert.equal(await guest.evaluate(()=>BingoRooms.getRoom().scores.red),7);
  await guest.locator('#roomListBtn').click();await guest.locator('[data-op="remount"][data-room="'+id+'"]').click();await guest.waitForTimeout(800);
- assert.ok(await guest.locator('[data-op="takeover"]').count());
- await guest.locator('#roomClose').click();await guest.evaluate(()=>showSetModal());await guest.locator('#setModal [data-set-tab="room"]').click();
+ assert.ok(await guest.locator('[data-op="resume"]').count());
+ await guest.locator('[data-op="resume"]').click();
+ await guest.waitForFunction(()=>window.BingoRooms.getRoom()?.state==='playing');
+ if (await guest.locator('#roomClose').isVisible()) await guest.locator('#roomClose').click();await guest.evaluate(()=>showSetModal());await guest.locator('#setModal [data-set-tab="room"]').click();
  await guest.locator('#roomDevCode').fill('test-dev');await guest.locator('#roomDevLogin').click();await guest.locator('#roomDevControls').waitFor({state:'visible'});
  await guest.locator('#roomAutoEnabled').check();await guest.locator('#roomAutoSave').click();
  await host.locator('#roomMiniBtn').click();assert.equal(await host.locator('#roomMini').isVisible(),true);

@@ -32,14 +32,36 @@ export class NotificationQueue {
 }
 
 export class Rooms {
-  constructor({ send, normalize, formatStart, address, cleanError = String, devCode = '', now = Date.now }) {
-    Object.assign(this, { send, normalize, formatStart, address, cleanError, devCode, now });
+  constructor({ send, normalize, formatStart, address, cleanError = String, devCode = '', now = Date.now, store = null }) {
+    Object.assign(this, { send, normalize, formatStart, address, cleanError, devCode, now, store });
     this.instance = randomUUID(); this.sessions = new Map(); this.rooms = new Map();
     this.roster = new Map();
     this.rates = new Map(); this.settings = { enabled: false, interval: 5 };
     this.lastSummary = 0; this.summaryPending = false;
     this.remountByRequest = new Map();
+    this.persistenceReady = !store;
+    this.persistenceError = null;
   }
+  async ready() {
+    if (!this.store || this.persistenceReady) return;
+    const loaded = await this.store.load();
+    this.sessions = loaded.sessions; this.rooms = loaded.rooms; this.roster = loaded.roster;
+    this.settings = loaded.settings; this.remountByRequest = loaded.remountByRequest;
+    this.persistenceReady = true;
+  }
+  snapshot() {
+    const sessions = new Map();
+    for (const [key, session] of this.sessions) {
+      const hash = this.store ? key : createHash('sha256').update(key).digest('hex');
+      sessions.set(hash, session);
+    }
+    return { sessions, rooms: this.rooms, roster: this.roster, settings: this.settings };
+  }
+  persist() {
+    if (!this.store || !this.persistenceReady) return Promise.resolve();
+    return this.store.save(this.snapshot()).catch(error => { this.persistenceError = error; throw error; });
+  }
+  changedPersist() { if (this.store && this.persistenceReady) void this.persist().catch(() => {}); }
   rate(key, max, window = 60000) {
     const now = this.now();
     let row = this.rates.get(key);
@@ -51,7 +73,8 @@ export class Rooms {
     for (const [key, session] of this.sessions) if (session.expires <= this.now()) this.sessions.delete(key);
   }
   session(token) {
-    const s = this.sessions.get(token);
+    const key = this.store ? createHash('sha256').update(String(token || '')).digest('hex') : String(token || '');
+    const s = this.sessions.get(key);
     if (!s || s.expires <= this.now()) throw fail('会话失效或服务器已重启，请重新连接', 401);
     s.expires = this.now() + 30 * 86400000;
     return s;
@@ -65,7 +88,7 @@ export class Rooms {
   }
   room(id) {
     const r = this.rooms.get(id);
-    if (!r) throw fail('房间已不存在，可能因服务器重启而清空', 404);
+    if (!r) throw fail('房间不存在：已被删除，或数据库中没有该记录', 404);
     return r;
   }
   oneHost(s) {
@@ -205,10 +228,12 @@ export class Rooms {
     if (r.delivery[kind] && r.delivery[kind].status !== 'failed') return;
     const state = { status: 'pending', error: '' };
     r.delivery[kind] = state;
+    this.changedPersist();
     const content = kind === 'start' ? this.formatStart(r.match) : this.summary(r, true);
-    Promise.resolve().then(() => this.send(content)).then(() => { state.status = 'sent'; }, error => {
+    Promise.resolve().then(() => this.send(content)).then(() => { state.status = 'sent'; this.changedPersist(); }, error => {
       state.status = error.uncertain ? 'unknown' : 'failed';
       state.error = this.cleanError(error.message);
+      this.changedPersist();
     });
   }
   tick() {
@@ -217,7 +242,7 @@ export class Rooms {
       if (r.state === 'countdown' && r.countdownEnd <= this.now()) {
         r.state = 'playing'; r.anchor = r.countdownEnd; r.startedAt = r.anchor;
         r.match.started_at = new Date(r.startedAt).toISOString();
-        this.changed(r); this.notify(r, 'start');
+        this.changed(r); this.notify(r, 'start'); this.changedPersist();
       }
     }
     if (this.settings.enabled && !this.summaryPending && this.now() - this.lastSummary >= this.settings.interval * 60000) {
@@ -236,7 +261,8 @@ export class Rooms {
       this.rate('session:' + ip, 30);
       if (this.sessions.size >= 10000) throw fail('会话容量已满', 503);
       const key = randomBytes(32).toString('hex');
-      this.sessions.set(key, { id: randomUUID(), devUntil: 0, expires: this.now() + 30 * 86400000, creates: new Map() });
+      const mapKey = this.store ? createHash('sha256').update(key).digest('hex') : key;
+      this.sessions.set(mapKey, { id: randomUUID(), devUntil: 0, expires: this.now() + 30 * 86400000, creates: new Map() });
       return { token: key };
     }
     const s = this.session(token);
@@ -306,6 +332,7 @@ export class Rooms {
       copy.createdAt = copy.updatedAt = this.now();
       this.rooms.set(copy.id, copy);
       this.remountByRequest.set(key, copy.id);
+      copy.remounts[key] = copy.id;
       if (this.remountByRequest.size > 500) this.remountByRequest.delete(this.remountByRequest.keys().next().value);
       this.rooms.delete(ended.id);
       return { room: this.view(copy, s) };
@@ -337,6 +364,20 @@ export class Rooms {
       r.host = s.id; r.match.referee = referee; r.members = [{ id: s.id, name: referee.title, seen: this.now() }];
       r.state = r.startedAt ? 'playing' : 'waiting'; r.anchor = this.now();
       r.records.push({ action: 'takeover', referee: referee.title, at: this.now() }); this.changed(r);
+      return { room: this.view(r, s) };
+    }
+    if (path === '/resume') {
+      this.host(s, r);
+      if (r.state !== 'mounted') throw fail('当前比赛不是暂停状态', 409);
+      this.revision(r, body);
+      const freshStart = !r.startedAt;
+      r.state = 'playing'; r.anchor = this.now(); r.countdownEnd = 0;
+      if (freshStart) {
+        r.startedAt = r.anchor;
+        r.match.started_at = new Date(r.startedAt).toISOString();
+      }
+      this.changed(r);
+      if (freshStart) this.notify(r, 'start');
       return { room: this.view(r, s) };
     }
     this.host(s, r);

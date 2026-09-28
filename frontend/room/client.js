@@ -96,14 +96,9 @@
   function rememberInstance(instance) {
     if (!instance) return;
     if (saved.instance && saved.instance !== instance) {
-      saved.token = '';
-      saved.room = '';
-      delete saved.pendingCreate;
-      room = null;
-      dirty = false;
-      developer = false;
-      connected = false;
-      status('服务器已重启，正在重新连接…');
+      // The instance id is only a process-health signal. Sessions and rooms
+      // are database-backed now, so a restart must not discard local tokens.
+      status('服务器已重启（实例已更新），正在恢复已保存房间…');
     }
     saved.instance = instance;
     store();
@@ -223,7 +218,7 @@
   function applyTimerButtonLabels() {
     const begin = $('beginMatchBtn'), pause = $('pauseMatchBtn'), end = $('endMatchBtn');
     const offlineTimer = isOffline() && !room;
-    if (begin) begin.textContent = offlineTimer ? '开始计时' : '开始比赛';
+    if (begin) begin.textContent = offlineTimer ? '开始计时' : (room?.state === 'mounted' && room.canControl ? '继续比赛' : '开始比赛');
     if (pause) pause.textContent = offlineTimer ? '暂停' : '暂停比赛';
     if (end) end.textContent = offlineTimer ? '重置' : '比赛结束';
   }
@@ -257,7 +252,7 @@
         $('t1').innerText = room.scores.red; $('t2').innerText = room.scores.blue;
       }
       const notifications = Object.entries(room.delivery || {}).map(([k, v]) => `${k === 'start' ? '开始' : '结束'}播报：${({ pending: '排队发送中', sent: '已发送', failed: '失败', unknown: '结果未确认，请核对 QQ 群' })[v.status]}${v.error ? ' · ' + v.error : ''}`).join('；');
-      if (connected) status(notifications || '房间已连接，数据保存在服务器内存');
+      if (connected) status(notifications || '房间已连接，数据已保存到服务器数据库');
       stopwatchSeconds = room.elapsed_seconds + (room.state === 'playing' ? Math.max(0, Math.floor((now() - lastReceivedAt) / 1000)) : 0);
       updateStopwatchDisplay();
     } else if (isOffline()) {
@@ -465,6 +460,14 @@
     }
     showToast('当前没有可暂停的比赛');
   }
+  async function resumeMatch() {
+    if (!room?.canControl || room.state !== 'mounted') {
+      showToast('只有原裁判或接管后的裁判可以继续比赛');
+      return;
+    }
+    await run(() => action('/resume'));
+    showToast('比赛已继续，不重复发送开始播报');
+  }
   async function refreshList() {
     const data = await api('/list');
     listing = data.rooms; developer = data.developer;
@@ -477,7 +480,8 @@
         <div class="room-card-actions">
           <button type="button" class="modal-btn" data-room="${r.id}" data-op="detail">详情</button>
           ${!['mounted', 'ended'].includes(state) ? `<button type="button" class="modal-btn btn-confirm" data-room="${r.id}" data-op="join">加入</button>` : ''}
-          ${state === 'mounted' ? `<button type="button" class="modal-btn btn-theme-blue" data-room="${r.id}" data-op="takeover">接管</button>` : ''}
+          ${state === 'mounted' && r.isHost ? `<button type="button" class="modal-btn btn-theme-blue" data-room="${r.id}" data-op="resume">继续比赛</button>` : ''}
+          ${state === 'mounted' && !r.isHost ? `<button type="button" class="modal-btn btn-theme-blue" data-room="${r.id}" data-op="takeover">接管</button>` : ''}
           ${state === 'ended' && r.canControl ? `<button type="button" class="modal-btn" data-room="${r.id}" data-op="remount">重新挂载</button>` : ''}
           ${(state === 'mounted' || state === 'ended') && (developer || r.isHost) ? `<button type="button" class="modal-btn btn-cancel" data-room="${r.id}" data-op="delete">${state === 'ended' ? '删除记录' : '删除挂载'}</button>` : ''}
         </div>
@@ -574,6 +578,10 @@
           btn.classList.toggle('is-active', btn.dataset.room === r.id);
         });
       } else if (b.dataset.op === 'join') await join(r.id);
+      else if (b.dataset.op === 'resume') {
+        const result = await api('/resume', { id: r.id, revision: r.rev });
+        accept(result.room, true); $('roomModal').classList.add('modal-hide');
+      }
       else if (b.dataset.op === 'takeover') {
         const previous = loadRefereeInfo();
         const title = prompt('接管裁判名字', previous.title || ''); if (!title?.trim()) return;
@@ -667,7 +675,7 @@
       <div class="room-modal-head"><h2 class="modal-title">比赛列表</h2><button type="button" class="modal-btn btn-cancel" id="roomClose">关闭</button></div>
       <div class="room-modal-layout">
         <div class="room-modal-body">
-          <p class="crop-hint" style="margin:0">公开使用，无需密钥。房间、挂载与历史仅保存在服务器内存，重启后清空。</p>
+          <p class="crop-hint" style="margin:0">公开使用，无需密钥。房间、暂停状态、历史和公共名册保存在服务器数据库；数据库不可用时不会伪装成本地已保存。</p>
           <div class="room-toolbar">
             <button type="button" class="modal-btn btn-confirm" id="roomRefresh">刷新 / 重连</button>
             <button type="button" class="modal-btn btn-theme-blue" id="roomCreate">创建等待房间</button>
@@ -675,7 +683,7 @@
           <div class="set-ui-card">
             <div class="set-ui-card-label">当前房间</div>
             <div class="room-current-actions" style="margin-top:8px">
-              <button type="button" class="modal-btn" id="roomMount">挂载并暂停</button>
+              <button type="button" class="modal-btn" id="roomMount">暂停并保存</button>
               <button type="button" class="modal-btn btn-cancel" id="roomDelete">删除当前房间</button>
               <button type="button" class="modal-btn btn-cancel" id="roomLeave">离开当前房间</button>
             </div>
@@ -701,6 +709,7 @@
     on('roomListBtn', openList);
     on('beginMatchBtn', () => {
       if (isOffline() && !room) { startOfflineTimer(); return; }
+      if (room?.state === 'mounted' && room.canControl) { resumeMatch(); return; }
       form(false);
     });
     on('endMatchBtn', finish);

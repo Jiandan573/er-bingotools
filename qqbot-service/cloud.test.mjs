@@ -7,7 +7,7 @@ Object.assign(process.env, {
   PUBLIC_BASE_URL: '', ALLOWED_ORIGINS: 'http://localhost:8000,null',
   QQ_APP_ID: 'mock-app', QQ_APP_SECRET: 'mock-app-secret',
   QQ_GROUP_OPENID: 'mock-group', BOT_CLIENT_KEY: 'mock-client-key',
-  QQ_EVENTS_ENABLED: 'false', SUPABASE_DATABASE_URL: '', DATABASE_URL: '', BINGOTOOLS_DEV_CODE: 'test-dev'
+  QQ_EVENTS_ENABLED: 'false', SUPABASE_DATABASE_URL: '', DATABASE_URL: '', REQUIRE_ROOM_DATABASE: 'false', BINGOTOOLS_DEV_CODE: 'test-dev'
 });
 const { createServer } = await import('./server.mjs');
 

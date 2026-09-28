@@ -89,6 +89,18 @@ test('start notify, atomic takeover, frozen time, end dedupe and history reset',
   assert.equal(t.call('/list', {}, t.guest).rooms.some(x => x.id === fresh.id && x.state === 'mounted'), true);
   assert.equal(t.call('/remount', { id: r.id, request_id: 'remount-1' }, t.guest).room.id, fresh.id);
 });
+test('original referee resumes mounted match without a duplicate start notification', async () => {
+  const t = setup(); let r = t.create();
+  r = t.call('/start', { id: r.id, revision: r.rev }).room;
+  await microtasks(); assert.equal(t.sent.length, 1);
+  t.advance(9000);
+  r = t.call('/mount', { id: r.id, revision: r.rev }).room;
+  assert.equal(r.state, 'mounted'); assert.equal(r.elapsed_seconds, 9);
+  r = t.call('/resume', { id: r.id, revision: r.rev }).room;
+  assert.equal(r.state, 'playing');
+  await microtasks(); assert.equal(t.sent.length, 1);
+  assert.throws(() => t.call('/resume', { id: r.id, revision: r.rev }, t.guest), /裁判/);
+});
 test('notification failure preserves game; uncertain delivery is not retried', async () => {
   const t = setup(async () => { throw Object.assign(new Error('timeout'), { uncertain: true }); });
   let r = t.create(); t.call('/start', { id: r.id, revision: r.rev }); await microtasks();

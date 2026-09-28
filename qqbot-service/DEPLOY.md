@@ -15,7 +15,7 @@ GitHub 是把程序交付给 Render 并更新的途径；代码本身可以公�
 - 所有人向同一个 `QQ_GROUP_OPENID` 播报。
 - 每个运行实例所有使用者合计每分钟最多发起 12 次发送。
 - 开启 WebSocket（`QQ_EVENTS_ENABLED=true`）接收 @查询；开始/结束仍为主动播报。
-- 默认在内存保存比赛与比分，无需数据库；重启或重新部署会清空记录。
+- Render 正式环境使用 Postgres 保存比赛与比分；本地开发才允许内存测试模式。
 - 免费实例冷启动时网页请求最多等 90 秒；不自动重试发送，超时请先核对 QQ 群。
 - Go/Wails 的直播解析/代理不在本服务中；正式 exe 接入留到后续阶段。
 
@@ -40,8 +40,7 @@ qqbot-service/
 
 ## 2. 数据库可选
 
-当前使用内存模式，无需配置 Supabase。需要重启后保留比赛记录时，才配置
-`SUPABASE_DATABASE_URL`。配置了数据库但连接失败时，服务拒绝比赛请求，避免误记。
+Render 通过 `DATABASE_URL` 注入内部 Postgres 连接串。`SUPABASE_DATABASE_URL` 仅保留给本地兼容测试。配置了数据库但连接失败时，服务拒绝房间请求，避免误记。
 如需自定义可信证书，使用 `SUPABASE_CA_CERT`，不要关闭 TLS 校验。
 
 ## 3. 配置 Render

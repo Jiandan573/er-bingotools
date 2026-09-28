@@ -2,6 +2,7 @@ import './local-config.mjs';
 import { QQEvents } from './events.mjs';
 import { Matches } from './matches.mjs';
 import { Rooms, NotificationQueue } from './rooms.mjs';
+import { RoomStore } from './room-store.mjs';
 import http from 'node:http';
 import crypto from 'node:crypto';
 import { URL } from 'node:url';
@@ -17,11 +18,12 @@ const BOT_CLIENT_KEY = String(process.env.BOT_CLIENT_KEY || '');
 const QQ_API_BASE = String(process.env.QQ_API_BASE || 'https://api.sgroup.qq.com').replace(/\/+$/, '');
 const QQ_TOKEN_URL = String(process.env.QQ_TOKEN_URL || 'https://bots.qq.com/app/getAppAccessToken');
 const DATABASE_URL = String(
-  process.env.SUPABASE_DATABASE_URL || process.env.DATABASE_URL || ''
+  process.env.DATABASE_URL || (process.env.RENDER === 'true' ? '' : process.env.SUPABASE_DATABASE_URL) || ''
 ).trim();
 
 let pool = null;
 let databaseReady = false;
+let roomStore = null;
 let cachedAccessToken = '';
 let accessTokenExpiresAt = 0;
 let tokenRequest;
@@ -74,6 +76,11 @@ const rooms = new Rooms({
   address: liveRoomAddress, cleanError: safeError,
   devCode: String(process.env.BINGOTOOLS_DEV_CODE || '')
 });
+
+function databaseStatus() {
+  if (!DATABASE_URL) return process.env.REQUIRE_ROOM_DATABASE === 'true' ? 'degraded' : 'disabled';
+  return databaseReady ? 'ready' : 'degraded';
+}
 
 const JSON_HEADERS = {
   'Content-Type': 'application/json; charset=utf-8',
@@ -343,10 +350,26 @@ async function initDatabase() {
     return;
   }
   try {
-    await pool.query(await readFile(new URL('./schema.sql', import.meta.url), 'utf8'));
-    await pool.query('ALTER TABLE bingotools_match_events ADD COLUMN IF NOT EXISTS idempotency_key TEXT');
-    await pool.query('ALTER TABLE bingotools_match_events ADD COLUMN IF NOT EXISTS payload_hash TEXT');
-    await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS bingotools_match_events_idempotency_key_idx ON bingotools_match_events (idempotency_key) WHERE idempotency_key IS NOT NULL');
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query("SELECT pg_advisory_xact_lock(hashtext('bingotools-schema-v2'))");
+      await client.query(await readFile(new URL('./schema.sql', import.meta.url), 'utf8'));
+      await client.query('ALTER TABLE bingotools_match_events ADD COLUMN IF NOT EXISTS idempotency_key TEXT');
+      await client.query('ALTER TABLE bingotools_match_events ADD COLUMN IF NOT EXISTS payload_hash TEXT');
+      await client.query('CREATE UNIQUE INDEX IF NOT EXISTS bingotools_match_events_idempotency_key_idx ON bingotools_match_events (idempotency_key) WHERE idempotency_key IS NOT NULL');
+      await client.query("INSERT INTO bingotools_schema_migrations (version) VALUES ('v2-persistence-1') ON CONFLICT DO NOTHING");
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+    roomStore = new RoomStore(pool);
+    rooms.store = roomStore;
+    rooms.persistenceReady = false;
+    await rooms.ready();
     databaseReady = true;
     console.log('[database] ready');
   } catch (error) {
@@ -369,7 +392,7 @@ async function handleRequest(req, res) {
   if (req.method === 'GET' && path === '/') {
     // Render 仅提供 API。HTML 保留在本地，未来由 exe 调用同一接口。
     jsonResponse(res, 200, {
-      ok: true, service: 'bingotools-qqbot-service', version: '17.2.2', mode: 'api-only', health: '/health'
+      ok: true, service: 'bingotools-qqbot-service', version: '17.3.0', mode: 'api-only', health: '/health'
     });
     return;
   }
@@ -378,9 +401,10 @@ async function handleRequest(req, res) {
     jsonResponse(res, 200, {
       ok: true,
       service: 'bingotools-qqbot-service',
-      version: '17.2.2',
+      version: '17.3.0',
       instance: rooms.instance,
-      qq: qqEvents.status().state
+      qq: qqEvents.status().state,
+      database: databaseStatus()
     });
     return;
   }
@@ -388,11 +412,13 @@ async function handleRequest(req, res) {
   if (path.startsWith('/api/v2/')) {
     try {
       if (req.method !== 'POST') throw fail('请使用 POST', 405);
+      if ((process.env.REQUIRE_ROOM_DATABASE === 'true' || DATABASE_URL) && !databaseReady) throw fail('数据库尚未就绪，房间数据暂不可用，请稍后重试', 503);
       const token = String(req.headers.authorization || '').replace(/^Bearer /, '');
       // Render terminates traffic at its proxy. Use the rightmost hop, never a
       // client-supplied leftmost address, for rate limiting.
       const forwarded = process.env.RENDER === 'true' ? String(req.headers['x-forwarded-for'] || '').split(',').at(-1)?.trim() : '';
       const result = rooms.handle(path.slice('/api/v2'.length), await readJsonBody(req, 131072), token, forwarded || req.socket.remoteAddress);
+      await rooms.persist();
       jsonResponse(res, 200, { ok: true, instance: rooms.instance, serverTime: Date.now(), ...result });
     } catch (error) {
       sendError(res, error.status || 400, error.message, { instance: rooms.instance });
