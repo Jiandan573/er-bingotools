@@ -13,7 +13,7 @@ export class RoomStore {
     void pending;
     const [sessions, rooms, members, notifications, roster, settings, idempotency] = await Promise.all([
       this.pool.query('SELECT * FROM bingotools_sessions'),
-      this.pool.query('SELECT * FROM bingotools_rooms ORDER BY updated_at'),
+      this.pool.query('SELECT * FROM bingotools_rooms ORDER BY updated_at_ms'),
       this.pool.query('SELECT * FROM bingotools_room_members'),
       this.pool.query('SELECT * FROM bingotools_room_notifications'),
       this.pool.query('SELECT * FROM bingotools_roster'),
