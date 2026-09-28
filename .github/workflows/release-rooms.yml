@@ -28,7 +28,7 @@ jobs:
       run:
         shell: bash
     env:
-      RELEASE_VERSION: ${{ inputs.version || 'v17.2.0' }}
+      RELEASE_VERSION: ${{ inputs.version || 'v17.2.1' }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - name: Preserve source line endings
