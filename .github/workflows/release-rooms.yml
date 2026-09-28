@@ -1,3 +1,4 @@
+06484f70160f5c6308a1f3e4843a4fc2ccf1528a34d97ba8cb47957f418106e8
 name: Windows rooms release
 
 on:
@@ -61,7 +62,7 @@ jobs:
             python - <<'PYCODE'
           import base64, hashlib, json, lzma, pathlib, subprocess
           raw = lzma.decompress(base64.b64decode(pathlib.Path('release/rooms-v172.json.xz.b64').read_bytes()))
-          assert hashlib.sha256(raw).hexdigest() == '90dd04b0f1771c97d124b5d83472e78e8fdea5985e2ef77bff402f9d36ef9ded'
+          assert hashlib.sha256(raw).hexdigest() == '06484f70160f5c6308a1f3e4843a4fc2ccf1528a34d97ba8cb47957f418106e8'
           data = json.loads(raw)
           for name, expected in data['base_sha256'].items():
               p = pathlib.Path(name)
