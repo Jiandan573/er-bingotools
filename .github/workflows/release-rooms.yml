@@ -4,13 +4,20 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Release tag (for example v17.2.0)
+        description: Release tag (for example v17.2.2)
         required: true
-        default: v17.2.1
+        default: v17.2.2
   push:
     branches: [master]
     paths:
+      - bingotools.html
+      - frontend/**
+      - index/**
+      - internal/app/**
+      - qqbot-service/**
+      - scripts/**
       - docs/**
+      - release/rooms-v172.json.xz.b64
 
 permissions:
   contents: write
@@ -28,7 +35,7 @@ jobs:
       run:
         shell: bash
     env:
-      RELEASE_VERSION: ${{ inputs.version || 'v17.2.1' }}
+      RELEASE_VERSION: ${{ inputs.version || 'v17.2.2' }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - name: Preserve source line endings
@@ -66,12 +73,14 @@ jobs:
               p = pathlib.Path(name)
               p.parent.mkdir(parents=True, exist_ok=True)
               p.write_text(content, encoding='utf-8', newline='')
-          subprocess.run(['git', 'apply', '--check', '-'], input=data['html_patch'].encode(), check=True)
-          subprocess.run(['git', 'apply', '-'], input=data['html_patch'].encode(), check=True)
+          if data.get('html_patch', '').strip():
+              subprocess.run(['git', 'apply', '--check', '-'], input=data['html_patch'].encode(), check=True)
+              subprocess.run(['git', 'apply', '-'], input=data['html_patch'].encode(), check=True)
           PYCODE
           fi
           node scripts/embed-rooms.mjs
           node scripts/make-standalone.mjs
+          node scripts/sync-v18-layout.mjs
           gofmt -w internal/app/qqbot.go internal/app/qqbot_test.go
       - name: Test desktop and bot integration
         run: |
@@ -98,7 +107,7 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add render.yaml bingotools.html frontend/dist/index.html index/bingotools-V17.html scripts frontend/room internal/app/qqbot.go internal/app/qqbot_test.go docs README.md qqbot-service
+          git add render.yaml bingotools.html frontend/dist/index.html index/bingotools-V17.html index/bingotools-V18.html scripts frontend/room internal/app/qqbot.go internal/app/qqbot_test.go docs README.md qqbot-service
           if test -f release/rooms-v172.json.xz.b64; then
             git rm release/rooms-v172.json.xz.b64
           fi
@@ -130,6 +139,7 @@ jobs:
               z.write(exe,filename)
               z.write('docs/QQ比赛播报使用说明.md','使用说明.md')
           (out/'bingotools-V17.html').write_bytes(pathlib.Path('index/bingotools-V17.html').read_bytes())
+          (out/'bingotools-V18.html').write_bytes(pathlib.Path('index/bingotools-V18.html').read_bytes())
           files = sorted(out.iterdir())
           (out/'SHA256SUMS.txt').write_text(''.join(hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.name+'\n' for p in files),encoding='utf-8')
           PY
