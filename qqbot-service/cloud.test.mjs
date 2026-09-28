@@ -7,7 +7,7 @@ Object.assign(process.env, {
   PUBLIC_BASE_URL: '', ALLOWED_ORIGINS: 'http://localhost:8000,null',
   QQ_APP_ID: 'mock-app', QQ_APP_SECRET: 'mock-app-secret',
   QQ_GROUP_OPENID: 'mock-group', BOT_CLIENT_KEY: 'mock-client-key',
-  QQ_EVENTS_ENABLED: 'false', SUPABASE_DATABASE_URL: '', DATABASE_URL: ''
+  QQ_EVENTS_ENABLED: 'false', SUPABASE_DATABASE_URL: '', DATABASE_URL: '', BINGOTOOLS_DEV_CODE: 'test-dev'
 });
 const { createServer } = await import('./server.mjs');
 
@@ -49,7 +49,9 @@ test('API-only hosting, authenticated sends, local HTML CORS and in-memory match
   });
   assert.equal(preflight.status, 204);
   assert.equal(preflight.headers.get('access-control-allow-origin'), headers.Origin);
-  assert.equal((await fetch(base + '/health', { headers: { Origin: 'https://untrusted.example' } })).status, 403);
+  const corsAny = await fetch(base + '/health', { headers: { Origin: 'https://untrusted.example' } });
+  assert.equal(corsAny.status, 200);
+  assert.equal(corsAny.headers.get('access-control-allow-origin'), 'https://untrusted.example');
   const filePreflight = await fetch(base + '/api/v1/matches/score', {
     method: 'OPTIONS', headers: { Origin:'null', 'Access-Control-Request-Method':'POST', 'Access-Control-Request-Headers':'authorization,content-type' }
   });
@@ -88,5 +90,22 @@ test('API-only hosting, authenticated sends, local HTML CORS and in-memory match
   assert.equal((await fetch(base + '/api/v2/list', { method: 'POST', body: '{}' })).status, 401);
   const list = await fetch(base + '/api/v2/list', { method: 'POST', headers: { Authorization: 'Bearer ' + session.token }, body: '{}' });
   assert.equal(list.status, 200);
+  const roster = await fetch(base + '/api/v2/roster', { method: 'POST', headers: { Authorization: 'Bearer ' + session.token }, body: '{}' });
+  assert.equal(roster.status, 200);
+  const deniedPush = await fetch(base + '/api/v2/roster/push', {
+    method: 'POST', headers: { Authorization: 'Bearer ' + session.token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ entries: [] })
+  });
+  assert.equal(deniedPush.status, 403);
+  const auth = await fetch(base + '/api/v2/dev-auth', {
+    method: 'POST', headers: { Authorization: 'Bearer ' + session.token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code: 'test-dev' })
+  });
+  assert.equal(auth.status, 200);
+  const push = await fetch(base + '/api/v2/roster/push', {
+    method: 'POST', headers: { Authorization: 'Bearer ' + session.token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ entries: [{ name: '测试选手', id: '123' }] })
+  });
+  assert.equal(push.status, 200);
   assert.equal(sent, 3, 'room reads and health checks never send a QQ message');
 });

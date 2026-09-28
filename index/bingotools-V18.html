@@ -1170,6 +1170,22 @@ body.zoom-mini-source-timer.mode-zoom-right #live1 .live-tip {
   flex-shrink: 0;
   width: 100%;
 }
+.btns-toolbar.bt-has-room-row {
+  max-height: none;
+  height: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.bt-room-btn-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+}
 .bingo-table-wrap.btns-collapsed .btns-toolbar {
   display: none;
 }
@@ -8389,12 +8405,6 @@ function confirmLiveId() {
   const source = parseLiveSource(sourceInput);
   if(!source) {showToast('请输入有效的B站房间号或抖音直播网址'); return;}
   applyStreamerNameToTeam(currentLiveNum, name);
-
-  if (source.type === 'local') {
-    hideLiveModal();
-    showToast('已选择本地采集名册；请点击「采集本地画面」选择窗口');
-    return;
-  }
 
   // 模式一：B站走官方播放器嵌入
   if (getLiveCaptureMode() === 1 && source.type === 'bilibili') {

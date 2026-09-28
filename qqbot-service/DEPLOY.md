@@ -10,7 +10,8 @@ GitHub 是把程序交付给 Render 并更新的途径；代码本身可以公�
 ## 本次配置：本地 HTML → Render API → QQ
 
 - Node Web Service 只提供 Bot API；`/` 返回服务说明 JSON，不托管网页。
-- HTML 留在本地，通过 HTTP 打开；测试与比赛播报需要 `BOT_CLIENT_KEY`。
+- HTML 留在本地。推荐 `node scripts/serve-html.mjs` 用 http://127.0.0.1:8000 打开；若双击 file:// 打开，服务端 `ALLOWED_ORIGINS` 必须包含 `null`。
+- 测试与比赛播报需要 `BOT_CLIENT_KEY`。
 - 所有人向同一个 `QQ_GROUP_OPENID` 播报。
 - 每个运行实例所有使用者合计每分钟最多发起 12 次发送。
 - 开启 WebSocket（`QQ_EVENTS_ENABLED=true`）接收 @查询；开始/结束仍为主动播报。
@@ -73,12 +74,15 @@ qqbot-service/
 不要上传本地配置来代替 Render 环境变量。云端会忽略本地配置文件。
 Render 自动提供 `PORT`。设置：
 
-```text
-ALLOWED_ORIGINS=http://localhost:8000,http://127.0.0.1:8000
+公开房间 API（`/api/v2/*`、`/health`）会回显任意 `Origin`（含 Wails、Cursor 内置浏览器、各本地预览端口）。`ALLOWED_ORIGINS` 可保留但不影响放行。改 CORS 后必须重新部署 Render，否则线上仍会 403。
+
+本地调试推荐：
+
+```bash
+node scripts/serve-html.mjs
 ```
 
-需要允许其他调试网页时明确列入 `ALLOWED_ORIGINS`，不要使用 `*` 或 `null`。
-Blueprint 不要求数据库。已有服务请手动把 QQ_EVENTS_ENABLED 更新为 true。
+打开 `http://127.0.0.1:8000/bingotools.html`（同源 `/qqbot` 代理到云端，不依赖云端 CORS）。
 
 ## 4. 验收
 

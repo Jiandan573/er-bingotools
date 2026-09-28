@@ -11,6 +11,9 @@ test('standalone HTML scripts compile and match controls follow stopwatch', () =
   const timer = html.slice(html.indexOf('<div class="timer-box timer-box-stopwatch">'), html.indexOf('<!-- 红方计分 -->'));
   assert.equal((timer.match(/class="timer-box/g) || []).length, 1);
   assert.doesNotMatch(timer, /onclick="(?:start|pause|reset)Stopwatch/);
+  assert.ok(timer.indexOf('id="beginMatchBtn"') < timer.indexOf('id="pauseMatchBtn"'));
+  assert.ok(timer.indexOf('id="pauseMatchBtn"') < timer.indexOf('id="endMatchBtn"'));
+  assert.match(html, /id="memoConnArea"|id="setOfflineMode"/);
 });
 
 test('local file page sends authenticated API request and omits participant titles', async () => {
@@ -58,9 +61,26 @@ test('public room module is embedded identically and keeps one main match contro
   assert.equal((html.match(/id="beginMatchBtn"/g) || []).length, 1);
   assert.doesNotMatch(html, /id="btDebugBtn"|id="btStartMatchBtn"|id="btEndMatchBtn"/);
   assert.match(client, /CallRoomService/);
-  assert.match(client, /api\('\/session'\)/);
+  assert.match(client, /api\('\/session'/);
   assert.match(client, /服务器已重启/);
+  assert.match(client, /offlineMode|isOffline|setOfflineMode/);
+  assert.match(client, /deleteRoom|pauseMatch/);
+  assert.match(client, /开始计时|startOfflineTimer/);
+  assert.match(client, /syncRosterFromServer|syncRosterToServer/);
+  assert.match(html, /从服务端同步/);
+  assert.match(html, /同步到服务端/);
+  assert.match(html, /window\.BingoRoster/);
 });
+
+test('roster sync APIs and V18 standalone output are wired', () => {
+  assert.match(clientSource(), /api\('\/roster'/);
+  assert.match(clientSource(), /api\('\/roster\/push'/);
+  assert.ok(readFileSync(new URL('../index/bingotools-V18.html', import.meta.url), 'utf8').includes('ROOM_V2_START'));
+});
+
+function clientSource() {
+  return readFileSync(new URL('../frontend/room/client.js', import.meta.url), 'utf8');
+}
 
 test('HTML reads displayed totals, syncs without announcing, and locks final score after a failed end', async () => {
   const els = new Map();

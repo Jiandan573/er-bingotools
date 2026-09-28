@@ -35,8 +35,10 @@ export class Rooms {
   constructor({ send, normalize, formatStart, address, cleanError = String, devCode = '', now = Date.now }) {
     Object.assign(this, { send, normalize, formatStart, address, cleanError, devCode, now });
     this.instance = randomUUID(); this.sessions = new Map(); this.rooms = new Map();
+    this.roster = new Map();
     this.rates = new Map(); this.settings = { enabled: false, interval: 5 };
     this.lastSummary = 0; this.summaryPending = false;
+    this.remountByRequest = new Map();
   }
   rate(key, max, window = 60000) {
     const now = this.now();
@@ -67,6 +69,7 @@ export class Rooms {
     return r;
   }
   oneHost(s) {
+    if (this.admin(s)) return;
     if ([...this.rooms.values()].some(r => r.host === s.id && !['ended', 'mounted'].includes(r.state)))
       throw fail('你已有未结束的房间，请先结束或挂载', 409);
   }
@@ -128,6 +131,54 @@ export class Rooms {
       if (!old) throw fail('房间容量已满，请稍后重试', 503);
       this.rooms.delete(old.id);
     }
+  }
+  rosterEntry(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw fail('选手名册条目无效');
+    const name = text(value.name, 100);
+    const raw = String(value.source ?? value.url ?? value.id ?? value.room ?? '').trim();
+    let platform = String(value.platform || '').trim().toLowerCase();
+    let source = raw;
+    if (platform === 'local' || raw.toLowerCase() === 'local') {
+      platform = 'local'; source = 'local';
+    } else {
+      if (!platform && /^\d+$/.test(raw)) platform = 'bilibili';
+      if (!['bilibili', 'douyin'].includes(platform) || !source) {
+        if (source) throw fail('选手直播来源无效');
+        platform = ''; source = '';
+      } else {
+        // Reuse the same URL/room validation as QQ messages, then keep one
+        // canonical value so different spellings deduplicate on both sides.
+        source = this.address(platform, source);
+        try {
+          const url = new URL(source);
+          url.hash = '';
+          url.search = '';
+          source = url.href.replace(/\/$/, '');
+        } catch { throw fail('选手直播来源无效'); }
+      }
+    }
+    const normalizedName = name.replace(/\s+/g, '').toLocaleLowerCase();
+    const key = platform && source
+      ? `${platform}:${source.toLocaleLowerCase()}`
+      : `name:${normalizedName}`;
+    const updatedAt = Number(value.updatedAt);
+    return {
+      name, platform, source, room: source && platform !== 'local' ? source : '',
+      updatedAt: Number.isFinite(updatedAt) && updatedAt > 0 ? Math.floor(updatedAt) : this.now(), key
+    };
+  }
+  rosterList() {
+    return [...this.roster.values()].sort((a, b) => a.name.localeCompare(b.name, 'zh-CN')).map(({ key, ...entry }) => clone(entry));
+  }
+  pushRoster(entries) {
+    if (!Array.isArray(entries) || entries.length > 2000) throw fail('选手名册最多支持 2000 条');
+    let added = 0, updated = 0;
+    for (const value of entries) {
+      const entry = this.rosterEntry(value);
+      const old = this.roster.get(entry.key);
+      this.roster.set(entry.key, entry); if (old) updated++; else added++;
+    }
+    return { roster: this.rosterList(), added, updated };
   }
   summary(r, ended = false) {
     const m = r.match, sec = this.elapsed(r);
@@ -206,6 +257,11 @@ export class Rooms {
       }
       return { settings: clone(this.settings) };
     }
+    if (path === '/roster') return { roster: this.rosterList() };
+    if (path === '/roster/push') {
+      if (!this.admin(s)) throw fail('同步到服务端需要开发者权限', 403);
+      return this.pushRoster(body.entries);
+    }
     if (path === '/list') return { rooms: [...this.rooms.values()].map(r => this.view(r, s, false)), developer: this.admin(s) };
     if (path === '/create') {
       const requestKey = body.request_id === undefined ? '' : text(body.request_id);
@@ -221,7 +277,7 @@ export class Rooms {
       const board = this.board(body.board), scores = this.scores(body.scores);
       const id = randomBytes(8).toString('hex');
       const r = { id, host: s.id, match, board, scores, state: 'waiting', rev: 1, elapsed: 0, anchor: 0,
-        startedAt: 0, countdown: 5, countdownEnd: 0, createdAt: this.now(), updatedAt: this.now(),
+        startedAt: 0, countdown: 0, countdownEnd: 0, createdAt: this.now(), updatedAt: this.now(),
         members: [{ id: s.id, name: match.referee.title, seen: this.now() }], delivery: {}, records: [], remounts: {} };
       this.rooms.set(id, r);
       if (requestKey) {
@@ -229,6 +285,30 @@ export class Rooms {
         if (s.creates.size > 100) s.creates.delete(s.creates.keys().next().value);
       }
       return { room: this.view(r, s) };
+    }
+    if (path === '/remount') {
+      const key = text(body.request_id);
+      if (this.remountByRequest.has(key)) {
+        const existing = this.rooms.get(this.remountByRequest.get(key));
+        if (existing) {
+          this.host(s, existing);
+          return { room: this.view(existing, s) };
+        }
+      }
+      const ended = this.room(body.id);
+      this.host(s, ended);
+      if (ended.state !== 'ended') throw fail('只有已结束比赛可以重新挂载', 409);
+      this.rate('create:' + ip, 5); this.capacity();
+      const copy = clone(ended);
+      copy.id = randomBytes(8).toString('hex'); copy.state = 'mounted'; copy.rev = 1;
+      copy.elapsed = 0; copy.anchor = 0; copy.startedAt = 0; copy.countdownEnd = 0;
+      copy.delivery = {}; copy.members = []; copy.remounts = {}; copy.records = [{ action: 'remount', at: this.now() }];
+      copy.createdAt = copy.updatedAt = this.now();
+      this.rooms.set(copy.id, copy);
+      this.remountByRequest.set(key, copy.id);
+      if (this.remountByRequest.size > 500) this.remountByRequest.delete(this.remountByRequest.keys().next().value);
+      this.rooms.delete(ended.id);
+      return { room: this.view(copy, s) };
     }
     const r = this.room(body.id);
     if (path === '/get') return { room: this.view(r, s) };
@@ -260,25 +340,26 @@ export class Rooms {
       return { room: this.view(r, s) };
     }
     this.host(s, r);
-    if (path === '/remount') {
-      if (r.state !== 'ended') throw fail('只有已结束比赛可以重新挂载', 409);
-      const key = text(body.request_id);
-      if (r.remounts[key]) return { room: this.view(this.room(r.remounts[key]), s) };
-      this.rate('create:' + ip, 5); this.capacity();
-      const copy = clone(r);
-      copy.id = randomBytes(8).toString('hex'); copy.state = 'mounted'; copy.rev = 1;
-      copy.elapsed = 0; copy.anchor = 0; copy.startedAt = 0; copy.countdownEnd = 0;
-      copy.delivery = {}; copy.members = []; copy.remounts = {}; copy.records = [{ action: 'remount', at: this.now() }];
-      copy.createdAt = copy.updatedAt = this.now();
-      this.rooms.set(copy.id, copy); r.remounts[key] = copy.id; this.changed(r);
-      return { room: this.view(copy, s) };
+    // 删除不校验 revision：列表里的 rev 易过期；房主可删本房，管理员可清挂载/已结束
+    if (path === '/delete') {
+      const isHost = r.host === s.id;
+      const isAdmin = this.admin(s);
+      if (isHost) {
+        /* 裁判删除自己的房间（任意状态） */
+      } else if (isAdmin && ['mounted', 'ended'].includes(r.state)) {
+        /* 管理员清理他人挂载/已结束记录 */
+      } else {
+        throw fail(isAdmin ? '管理员仅可删除挂载或已结束比赛' : '只有本场裁判可以删除房间', 403);
+      }
+      this.rooms.delete(r.id);
+      return {};
     }
     if (path === '/retry') {
       const kind = body.kind;
       if (!['start', 'end'].includes(kind) || r.delivery[kind]?.status !== 'failed') throw fail('仅明确失败的通知可以重试；未知结果请先核对 QQ 群', 409);
       this.notify(r, kind); return { room: this.view(r, s) };
     }
-    if (path === '/start' && ['countdown', 'playing'].includes(r.state)) return { room: this.view(r, s) };
+    if (path === '/start' && r.state === 'playing') return { room: this.view(r, s) };
     if (path === '/end' && r.state === 'ended') return { room: this.view(r, s) };
     this.revision(r, body);
     switch (path) {
@@ -294,8 +375,10 @@ export class Rooms {
         if (body.member === r.host) throw fail('不能移除裁判');
         r.members = r.members.filter(m => m.id !== body.member); break;
       case '/start':
-        if (r.state !== 'waiting') throw fail('当前状态不能开始', 409);
-        r.state = 'countdown'; r.countdownEnd = this.now() + r.countdown * 1000; break;
+        if (r.state !== 'waiting' && r.state !== 'countdown') throw fail('当前状态不能开始', 409);
+        r.state = 'playing'; r.countdownEnd = 0; r.anchor = this.now(); r.startedAt = r.anchor;
+        r.match.started_at = new Date(r.startedAt).toISOString();
+        this.changed(r); this.notify(r, 'start'); return { room: this.view(r, s) };
       case '/mount':
         if (!['waiting', 'playing', 'countdown'].includes(r.state)) throw fail('当前状态不能挂载', 409);
         r.elapsed = this.elapsed(r); r.state = 'mounted'; r.countdownEnd = 0;
@@ -306,9 +389,6 @@ export class Rooms {
           r.board = board; r.scores = score; }
         r.elapsed = this.elapsed(r); r.state = 'ended'; r.countdownEnd = 0;
         this.changed(r); this.notify(r, 'end'); return { room: this.view(r, s) };
-      case '/delete':
-        if (!this.admin(s) || r.state !== 'mounted') throw fail('仅开发者可删除挂载比赛', 403);
-        this.rooms.delete(r.id); return {};
       default: throw fail('接口不存在', 404);
     }
     this.changed(r); this.tick();

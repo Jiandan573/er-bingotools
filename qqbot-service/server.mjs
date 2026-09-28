@@ -25,8 +25,8 @@ let databaseReady = false;
 let cachedAccessToken = '';
 let accessTokenExpiresAt = 0;
 let tokenRequest;
-const allowedOrigins = new Set((process.env.ALLOWED_ORIGINS ||
-  'null,http://localhost:8000,http://127.0.0.1:8000,http://localhost:8787,http://127.0.0.1:8787').split(',').map(s => s.trim()).filter(Boolean));
+// ALLOWED_ORIGINS 已不再拦截；公开房间 API 回显任意 Origin（桌面 Wails / Cursor 预览 / 各本地端口）。
+// 环境变量可保留作文档兼容，部署后务必带上本文件的 setCorsHeaders 改动。
 let sendWindowStarted = Date.now();
 let sendsInWindow = 0;
 
@@ -87,7 +87,8 @@ function jsonResponse(res, status, payload) {
 
 function setCorsHeaders(req, res) {
   const origin = String(req.headers.origin || '');
-  if (origin && allowedOrigins.has(origin)) res.setHeader('Access-Control-Allow-Origin', origin);
+  // 公开房间 API：回显任意 Origin（含 Cursor 内置浏览器、Wails、各本地预览端口）
+  res.setHeader('Access-Control-Allow-Origin', origin || '*');
   res.setHeader('Vary', 'Origin');
   res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, Idempotency-Key');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -356,10 +357,6 @@ async function initDatabase() {
 
 async function handleRequest(req, res) {
   setCorsHeaders(req, res);
-  if (req.headers.origin && !allowedOrigins.has(req.headers.origin)) {
-    sendError(res, 403, '网页来源未获允许；请使用本地 HTTP 调试网页，或由管理员配置 ALLOWED_ORIGINS');
-    return;
-  }
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
     res.end();
@@ -372,7 +369,7 @@ async function handleRequest(req, res) {
   if (req.method === 'GET' && path === '/') {
     // Render 仅提供 API。HTML 保留在本地，未来由 exe 调用同一接口。
     jsonResponse(res, 200, {
-      ok: true, service: 'bingotools-qqbot-service', version: '17.2.0', mode: 'api-only', health: '/health'
+      ok: true, service: 'bingotools-qqbot-service', version: '17.2.2', mode: 'api-only', health: '/health'
     });
     return;
   }
@@ -381,7 +378,7 @@ async function handleRequest(req, res) {
     jsonResponse(res, 200, {
       ok: true,
       service: 'bingotools-qqbot-service',
-      version: '17.2.0',
+      version: '17.2.2',
       instance: rooms.instance,
       qq: qqEvents.status().state
     });

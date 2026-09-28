@@ -67,13 +67,21 @@ func TestRoomBridgePublicSessionAndAuthenticatedUpdate(t *testing.T) {
 			if r.Header.Get("Authorization") != "Bearer session-token" || r.Method != http.MethodPost {
 				t.Error("room update requires the automatic session credential")
 			}
+		case "/api/v2/roster":
+			if r.Method != http.MethodPost {
+				t.Error("roster read must use POST")
+			}
+		case "/api/v2/roster/push":
+			if r.Method != http.MethodPost {
+				t.Error("roster push must use POST")
+			}
 		default:
 			t.Error("unexpected route")
 		}
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	}))
 	defer server.Close()
-	for _, path := range []string{"/health", "/api/v2/session", "/api/v2/update"} {
+	for _, path := range []string{"/health", "/api/v2/session", "/api/v2/update", "/api/v2/roster", "/api/v2/roster/push"} {
 		token := ""
 		if path == "/api/v2/update" {
 			token = "session-token"

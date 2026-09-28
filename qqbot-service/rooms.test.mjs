@@ -38,12 +38,32 @@ test('public sessions, server-owned roles, CAS and fixed referee labels', () => 
   t.advance(8 * 3600000 + 1);
   assert.throws(() => t.call('/dev/settings'), /开发者/);
 });
-test('countdown, atomic takeover, frozen time, end dedupe and history reset', async () => {
+test('shared roster is readable by users and writable only by developer', () => {
+  const t = setup();
+  assert.deepEqual(t.call('/roster', {}, t.guest).roster, []);
+  assert.throws(() => t.call('/roster/push', { entries: [{ name: '红甲', id: '123' }] }, t.guest), /开发者/);
+  t.call('/dev-auth', { code: 'test-dev' });
+  let result = t.call('/roster/push', { entries: [
+    { name: '红甲', id: '123', updatedAt: 1 },
+    { name: '红甲新名字', platform: 'bilibili', source: 'https://live.bilibili.com/123/', updatedAt: 2 },
+    { name: '本地选手', platform: 'local', source: 'local' },
+    { name: '无来源选手' }
+  ] });
+  assert.equal(result.added, 3);
+  assert.equal(result.updated, 1);
+  assert.equal(result.roster.length, 3);
+  assert.equal(result.roster.find(x => x.platform === 'bilibili').name, '红甲新名字');
+  const guestView = t.call('/roster', {}, t.guest).roster;
+  assert.equal(guestView.length, 3);
+  assert.equal(guestView.some(x => x.platform === 'local' && x.source === 'local'), true);
+});
+test('start notify, atomic takeover, frozen time, end dedupe and history reset', async () => {
   const t = setup(); let r = t.create();
   r = t.call('/start', { id: r.id, revision: r.rev }).room;
-  assert.equal(r.state, 'countdown'); assert.equal(t.sent.length, 0);
-  t.call('/start', { id: r.id, revision: r.rev }); t.advance(5000); await microtasks();
-  assert.equal(t.sent.length, 1);
+  assert.equal(r.state, 'playing');
+  await microtasks(); assert.equal(t.sent.length, 1);
+  t.call('/start', { id: r.id, revision: r.rev });
+  await microtasks(); assert.equal(t.sent.length, 1);
   t.advance(12000);
   r = t.call('/get', { id: r.id }).room;
   assert.equal(r.elapsed_seconds, 12);
@@ -58,15 +78,20 @@ test('countdown, atomic takeover, frozen time, end dedupe and history reset', as
   t.call('/end', { id: r.id, revision: 0 }, t.guest);
   await microtasks(); assert.equal(t.sent.length, 2);
   assert.match(t.sent[1], /裁判：裁判乙/); assert.match(t.sent[1], /8 分/);
-  assert.doesNotMatch(t.sent.join(''), /识别码|比赛编号|直播间标题/);
+  assert.doesNotMatch(t.sent.join(''), /识别码：/);
+  assert.doesNotMatch(t.sent.join(''), /比赛编号|直播间标题/);
   assert.equal(r.elapsed_seconds, 13); assert.equal(t.rooms.current(), '');
   const fresh = t.call('/remount', { id: r.id, request_id: 'remount-1' }, t.guest).room;
   assert.notEqual(fresh.id, r.id); assert.equal(fresh.elapsed_seconds, 0);
+  assert.equal(fresh.state, 'mounted');
+  assert.throws(() => t.call('/get', { id: r.id }, t.guest), /不存在/);
+  assert.equal(t.call('/list', {}, t.guest).rooms.some(x => x.id === r.id), false);
+  assert.equal(t.call('/list', {}, t.guest).rooms.some(x => x.id === fresh.id && x.state === 'mounted'), true);
   assert.equal(t.call('/remount', { id: r.id, request_id: 'remount-1' }, t.guest).room.id, fresh.id);
 });
 test('notification failure preserves game; uncertain delivery is not retried', async () => {
   const t = setup(async () => { throw Object.assign(new Error('timeout'), { uncertain: true }); });
-  let r = t.create(); t.call('/start', { id: r.id, revision: r.rev }); t.advance(5000); await microtasks();
+  let r = t.create(); t.call('/start', { id: r.id, revision: r.rev }); await microtasks();
   r = t.call('/get', { id: r.id }).room;
   assert.equal(r.state, 'playing'); assert.equal(r.delivery.start.status, 'unknown');
   assert.throws(() => t.call('/retry', { id: r.id, kind: 'start' }), /未知/);
@@ -85,21 +110,61 @@ test('presence, member cap, kick and session expiry after instance restart', () 
   assert.notEqual(t.rooms.instance, reset.rooms.instance);
   assert.throws(() => reset.rooms.handle('/list', {}, t.host), /失效/);
 });
-test('one active host, IP limit, and server-only periodic summary', async () => {
+test('one active host, admin multi-room, IP limit, and server-only periodic summary', async () => {
   const t = setup(); let r = t.create();
   assert.throws(t.create, /已有/);
   t.call('/dev-auth', { code: 'test-dev' });
+  const second = t.create();
+  assert.notEqual(second.id, r.id);
   t.call('/dev/settings', { enabled: true, interval: 5 });
   t.advance(300000); await microtasks(); assert.equal(t.sent.length, 0);
-  t.call('/start', { id: r.id, revision: r.rev }); t.advance(5000); await microtasks();
+  t.call('/start', { id: r.id, revision: r.rev }); await microtasks();
+  assert.equal(t.sent.length, 1);
   t.advance(300000); await microtasks(); assert.equal(t.sent.length, 2);
+  assert.doesNotMatch(t.sent[0], /识别码：/);
   assert.match(t.sent[1], /正在进行/);
+  assert.doesNotMatch(t.sent[1], /识别码：/);
+  t.call('/dev-auth', { code: 'test-dev' });
+  const ended = t.call('/end', { id: r.id, revision: t.call('/get', { id: r.id }).room.rev, board: board(), scores: { red: 1, blue: 0 } }).room;
+  assert.equal(ended.state, 'ended');
+  // 删除不依赖 revision（列表 rev 过期时仍可删）
+  t.call('/delete', { id: ended.id });
+  assert.throws(() => t.call('/get', { id: ended.id }), /不存在/);
   const x = setup();
   for (let i = 0; i < 5; i++) {
     const token = x.session('session' + i);
     x.call('/create', { match, board: board(), scores: { red: 0, blue: 0 } }, token, 'same-ip');
   }
   assert.throws(() => x.call('/create', { match, board: board(), scores: { red: 0, blue: 0 } }, x.guest, 'same-ip'), /频繁/);
+});
+test('host can delete own room; admin can delete others ended; guest cannot', () => {
+  const t = setup();
+  const waiting = t.create();
+  assert.throws(() => t.call('/delete', { id: waiting.id }, t.guest), /裁判/);
+  t.call('/delete', { id: waiting.id });
+  assert.throws(() => t.call('/get', { id: waiting.id }), /不存在/);
+
+  const hostRoom = t.create();
+  t.call('/start', { id: hostRoom.id, revision: hostRoom.rev });
+  const playing = t.call('/get', { id: hostRoom.id }).room;
+  t.call('/delete', { id: playing.id });
+  assert.throws(() => t.call('/get', { id: playing.id }), /不存在/);
+
+  const shared = setup();
+  const owned = shared.create();
+  const ended = shared.call('/end', {
+    id: owned.id, revision: owned.rev, board: board(), scores: { red: 2, blue: 1 }
+  }).room;
+  const adminToken = shared.session('admin-ip');
+  shared.call('/dev-auth', { code: 'test-dev' }, adminToken, 'admin-ip');
+  shared.call('/delete', { id: ended.id }, adminToken, 'admin-ip');
+  assert.throws(() => shared.call('/get', { id: ended.id }, adminToken, 'admin-ip'), /不存在/);
+
+  const live = setup();
+  const active = live.create();
+  const admin2 = live.session('adm2');
+  live.call('/dev-auth', { code: 'test-dev' }, admin2, 'adm2');
+  assert.throws(() => live.call('/delete', { id: active.id }, admin2, 'adm2'), /挂载或已结束/);
 });
 test('bounded notification queue serializes senders and reports overflow', async () => {
   let release; const order = [];

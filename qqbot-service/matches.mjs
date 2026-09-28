@@ -107,7 +107,7 @@ export class Matches {
   }
   summary(row, ended = false) {
     const m = row.match;
-    return [ended ? '🏁 Bingo 比赛结束' : '🎮 正在进行的 Bingo 比赛',
+    const lines = [ended ? '🏁 Bingo 比赛结束' : '🎮 正在进行的 Bingo 比赛',
       `裁判：${m.referee.title}`,
       `裁判直播间：${this.address(m.referee.platform || 'bilibili', m.referee.room)}`,
       `${ended ? '最终得分' : '当前比分'}：`,
@@ -115,7 +115,8 @@ export class Matches {
       `蓝方 ${m.right.name}：${row.scores.blue} 分`,
       `${ended ? '比赛用时' : '比赛已进行（截至同步）'}：${duration(row.elapsed_seconds ?? Math.max(0, Math.floor((Date.parse(row.updated_at) - Date.parse(m.started_at)) / 1000)))}`,
       `比分同步时间：${new Date(row.updated_at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })}（北京时间）`
-    ].join('\n');
+    ];
+    return lines.join('\n');
   }
   async current() {
     const db = this.db();

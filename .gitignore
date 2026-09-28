@@ -20,6 +20,7 @@ pnpm-lock.yaml
 # Logs
 *.log
 nohup.out
+qqbot-service/.local-config.json
 
 # OS
 .DS_Store

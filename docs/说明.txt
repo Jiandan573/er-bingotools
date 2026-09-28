@@ -1,0 +1,9 @@
+
+- bingotools.html / frontend/dist/index.html / index/bingotools-V18.html 已同步
+- 改 frontend/room/client.js 后执行：
+  node scripts/embed-rooms.mjs
+  node scripts/sync-v18-layout.mjs
+- 本地不要用 file:// 双击连云端（Chrome 常 Failed to fetch）。推荐：
+  node scripts/serve-html.mjs
+  浏览器打开 http://127.0.0.1:8000/bingotools.html
+  该脚本会把 /qqbot 同源代理到云端，Chrome 扩展不易拦截。

@@ -9,7 +9,7 @@ test('validateMatchPayload requires referee room and title', () => {
   );
 });
 
-test('formatMatchMessage contains referee and players without rules or match id', () => {
+test('formatMatchMessage contains referee and players without room code', () => {
   const match = validateMatchPayload({
     started_at: '2026-09-18T12:00:00Z',
     referee: { room: '123456', title: '裁判直播' },
@@ -24,7 +24,7 @@ test('formatMatchMessage contains referee and players without rules or match id'
   assert.match(message, /红方：红方选手/);
   assert.match(message, /蓝方：蓝方选手/);
   assert.match(message, /裁判：裁判直播/);
-  assert.doesNotMatch(message, /rules|比赛编号|match_id|直播间标题|红方直播|蓝方直播/);
+  assert.doesNotMatch(message, /识别码|rules|比赛编号|match_id|直播间标题|红方直播|蓝方直播/);
   const preview = formatMatchMessage(match, { test: true });
   assert.match(preview, /比赛播报（测试）/);
   assert.doesNotMatch(preview, /比赛开始/);
