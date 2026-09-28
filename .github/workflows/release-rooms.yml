@@ -107,7 +107,7 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .gitignore render.yaml README.md bingotools.html frontend/dist/index.html frontend/dist/bingomaker.html frontend/wailsjs index/bingotools-V17.html index/bingotools-V18.html scripts frontend/room internal/app/qqbot.go internal/app/qqbot_test.go docs qqbot-service
+          git add .gitignore render.yaml README.md bingotools.html frontend/dist/index.html frontend/dist/bingomaker.html index/bingotools-V17.html index/bingotools-V18.html scripts frontend/room internal/app/qqbot.go internal/app/qqbot_test.go docs qqbot-service
           if test -f release/rooms-v172.json.xz.b64; then
             git rm release/rooms-v172.json.xz.b64
           fi
