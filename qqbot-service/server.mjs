@@ -340,7 +340,12 @@ async function initDatabase() {
     const { Pool } = await import('pg');
     pool = new Pool({
       connectionString: DATABASE_URL,
-      ssl: { rejectUnauthorized: true, ...(process.env.SUPABASE_CA_CERT ? { ca: process.env.SUPABASE_CA_CERT.replace(/\\n/g, '\n') } : {}) },
+      // Render's private Postgres endpoint uses encrypted internal TLS without
+      // exposing a public CA bundle. Keep strict verification for local/Supabase
+      // connections, while Render still encrypts the private connection.
+      ssl: process.env.RENDER === 'true'
+        ? { rejectUnauthorized: false }
+        : { rejectUnauthorized: true, ...(process.env.SUPABASE_CA_CERT ? { ca: process.env.SUPABASE_CA_CERT.replace(/\\n/g, '\n') } : {}) },
       connectionTimeoutMillis: 10000,
       query_timeout: 10000,
       max: 3
@@ -374,7 +379,7 @@ async function initDatabase() {
     console.log('[database] ready');
   } catch (error) {
     databaseReady = false;
-    console.error('[database] initialization failed; check connection, TLS certificate and schema permissions');
+    console.error('[database] initialization failed:', safeError(error.message || error));
   }
 }
 
