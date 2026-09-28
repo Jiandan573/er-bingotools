@@ -65,7 +65,7 @@ jobs:
           data = json.loads(raw)
           for name, expected in data['base_sha256'].items():
               p = pathlib.Path(name)
-              assert not p.is_absolute() and '..' not in p.parts and not name.startswith('.'), name
+              assert not p.is_absolute() and '..' not in p.parts and (not name.startswith('.') or name == '.gitignore'), name
               actual = hashlib.sha256(p.read_bytes()).hexdigest() if p.exists() else None
               assert actual == expected, 'Source changed; rebase before release: ' + name
           assert set(data['files']).issubset(data['base_sha256'])
