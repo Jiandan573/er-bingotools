@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Release tag (for example v17.2.2)
+        description: Release tag (for example v17.3.0)
         required: true
-        default: v17.2.2
+        default: v17.3.0
   push:
     branches: [master]
     paths:
@@ -17,7 +17,7 @@ on:
       - qqbot-service/**
       - scripts/**
       - docs/**
-      - release/rooms-v172.json.xz.b64
+      - release/rooms-v173.json.xz.b64
 
 permissions:
   contents: write
@@ -35,7 +35,7 @@ jobs:
       run:
         shell: bash
     env:
-      RELEASE_VERSION: ${{ inputs.version || 'v17.2.2' }}
+      RELEASE_VERSION: ${{ inputs.version || 'v17.3.0' }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - name: Preserve source line endings
@@ -57,11 +57,11 @@ jobs:
             echo "Tag already exists; use a new version." >&2
             exit 1
           fi
-          if test -f release/rooms-v172.json.xz.b64; then
+          if test -f release/rooms-v173.json.xz.b64; then
             python - <<'PYCODE'
           import base64, hashlib, json, lzma, pathlib, subprocess
-          raw = lzma.decompress(base64.b64decode(pathlib.Path('release/rooms-v172.json.xz.b64').read_bytes()))
-          assert hashlib.sha256(raw).hexdigest() == '06484f70160f5c6308a1f3e4843a4fc2ccf1528a34d97ba8cb47957f418106e8'
+          raw = lzma.decompress(base64.b64decode(pathlib.Path('release/rooms-v173.json.xz.b64').read_bytes()))
+          assert hashlib.sha256(raw).hexdigest() == 'dc439e2b8c8bc3f0ad557172d54ad1ff4640c471560abf83280ec778bedc6978'
           data = json.loads(raw)
           for name, expected in data['base_sha256'].items():
               p = pathlib.Path(name)
@@ -108,11 +108,11 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add .gitignore render.yaml README.md bingotools.html frontend/dist/index.html frontend/dist/bingomaker.html index/bingotools-V17.html index/bingotools-V18.html scripts frontend/room internal/app/qqbot.go internal/app/qqbot_test.go docs qqbot-service
-          if test -f release/rooms-v172.json.xz.b64; then
-            git rm release/rooms-v172.json.xz.b64
+          if test -f release/rooms-v173.json.xz.b64; then
+            git rm release/rooms-v173.json.xz.b64
           fi
           if ! git diff --cached --quiet; then
-            git commit -m "feat: integrate public multiplayer rooms and QQ broadcasts [skip ci]"
+            git commit -m "feat: persist rooms and pause state with Render Postgres [skip ci]"
             git push origin HEAD:master
           fi
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
