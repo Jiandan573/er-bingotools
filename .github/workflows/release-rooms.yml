@@ -61,7 +61,7 @@ jobs:
             python - <<'PYCODE'
           import base64, hashlib, json, lzma, pathlib, subprocess
           raw = lzma.decompress(base64.b64decode(pathlib.Path('release/rooms-v173.json.xz.b64').read_bytes()))
-          assert hashlib.sha256(raw).hexdigest() == 'a4eabb4d1a5d5f03aceef1d52503b357d3e0da650ddfcb759e0bfdd1b746ecce'
+          assert hashlib.sha256(raw).hexdigest() == '74eef71bb642ef65c9225c3d1fa637370fae064a4ab04eec35180844ed278871'
           data = json.loads(raw)
           for name, expected in data['base_sha256'].items():
               p = pathlib.Path(name)
