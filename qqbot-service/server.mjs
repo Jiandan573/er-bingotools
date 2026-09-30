@@ -397,7 +397,7 @@ async function handleRequest(req, res) {
   if (req.method === 'GET' && path === '/') {
     // Render 仅提供 API。HTML 保留在本地，未来由 exe 调用同一接口。
     jsonResponse(res, 200, {
-      ok: true, service: 'bingotools-qqbot-service', version: '17.3.2', mode: 'api-only', health: '/health'
+      ok: true, service: 'bingotools-qqbot-service', version: '17.4.1', mode: 'api-only', health: '/health'
     });
     return;
   }
@@ -406,7 +406,7 @@ async function handleRequest(req, res) {
     jsonResponse(res, 200, {
       ok: true,
       service: 'bingotools-qqbot-service',
-      version: '17.3.2',
+      version: '17.4.1',
       instance: rooms.instance,
       qq: qqEvents.status().state,
       database: databaseStatus()

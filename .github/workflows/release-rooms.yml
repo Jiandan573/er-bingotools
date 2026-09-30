@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Release tag (for example v17.3.2)
+        description: Release tag (for example v17.4.1)
         required: true
-        default: v17.4.0
+        default: v17.4.1
   push:
     branches: [master]
     paths:
@@ -36,7 +36,7 @@ jobs:
       run:
         shell: bash
     env:
-      RELEASE_VERSION: ${{ inputs.version || 'v17.4.0' }}
+      RELEASE_VERSION: ${{ inputs.version || 'v17.4.1' }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - name: Preserve source line endings
