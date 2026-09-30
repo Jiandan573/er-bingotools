@@ -6,7 +6,7 @@ on:
       version:
         description: Release tag (for example v17.3.2)
         required: true
-        default: v17.3.2
+        default: v17.4.0
   push:
     branches: [master]
     paths:
@@ -35,7 +35,7 @@ jobs:
       run:
         shell: bash
     env:
-      RELEASE_VERSION: ${{ inputs.version || 'v17.3.2' }}
+      RELEASE_VERSION: ${{ inputs.version || 'v17.4.0' }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - name: Preserve source line endings
