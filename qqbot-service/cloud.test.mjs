@@ -92,11 +92,11 @@ test('API-only hosting, authenticated sends, local HTML CORS and in-memory match
   assert.equal(list.status, 200);
   const roster = await fetch(base + '/api/v2/roster', { method: 'POST', headers: { Authorization: 'Bearer ' + session.token }, body: '{}' });
   assert.equal(roster.status, 200);
-  const deniedPush = await fetch(base + '/api/v2/roster/push', {
+  const publicPush = await fetch(base + '/api/v2/roster/push', {
     method: 'POST', headers: { Authorization: 'Bearer ' + session.token, 'Content-Type': 'application/json' },
     body: JSON.stringify({ entries: [] })
   });
-  assert.equal(deniedPush.status, 403);
+  assert.equal(publicPush.status, 200);
   const auth = await fetch(base + '/api/v2/dev-auth', {
     method: 'POST', headers: { Authorization: 'Bearer ' + session.token, 'Content-Type': 'application/json' },
     body: JSON.stringify({ code: 'test-dev' })

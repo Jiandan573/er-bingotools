@@ -71,7 +71,7 @@ func TestRoomBridgePublicSessionAndAuthenticatedUpdate(t *testing.T) {
 			if r.Method != http.MethodPost {
 				t.Error("roster read must use POST")
 			}
-		case "/api/v2/roster/push":
+		case "/api/v2/roster/push", "/api/v2/resume", "/api/v2/roster/admin/update", "/api/v2/roster/admin/delete":
 			if r.Method != http.MethodPost {
 				t.Error("roster push must use POST")
 			}
@@ -81,7 +81,7 @@ func TestRoomBridgePublicSessionAndAuthenticatedUpdate(t *testing.T) {
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	}))
 	defer server.Close()
-	for _, path := range []string{"/health", "/api/v2/session", "/api/v2/update", "/api/v2/roster", "/api/v2/roster/push"} {
+	for _, path := range []string{"/health", "/api/v2/session", "/api/v2/update", "/api/v2/roster", "/api/v2/roster/push", "/api/v2/resume", "/api/v2/roster/admin/update", "/api/v2/roster/admin/delete"} {
 		token := ""
 		if path == "/api/v2/update" {
 			token = "session-token"

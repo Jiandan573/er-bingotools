@@ -181,27 +181,46 @@ export class Rooms {
       }
     }
     const normalizedName = name.replace(/\s+/g, '').toLocaleLowerCase();
-    const key = platform && source
+    const key = platform === 'local'
+      ? `local:${normalizedName}`
+      : platform && source
       ? `${platform}:${source.toLocaleLowerCase()}`
       : `name:${normalizedName}`;
-    const updatedAt = Number(value.updatedAt);
     return {
       name, platform, source, room: source && platform !== 'local' ? source : '',
-      updatedAt: Number.isFinite(updatedAt) && updatedAt > 0 ? Math.floor(updatedAt) : this.now(), key
+      updatedAt: this.now(), key
     };
   }
-  rosterList() {
-    return [...this.roster.values()].sort((a, b) => a.name.localeCompare(b.name, 'zh-CN')).map(({ key, ...entry }) => clone(entry));
+  rosterList(includeKeys = false) {
+    return [...this.roster.entries()].sort(([, a], [, b]) => a.name.localeCompare(b.name, 'zh-CN')).map(([key, entry]) =>
+      clone(includeKeys ? { ...entry, key } : (({ key: ignored, ...publicEntry }) => publicEntry)(entry)));
   }
   pushRoster(entries) {
-    if (!Array.isArray(entries) || entries.length > 2000) throw fail('选手名册最多支持 2000 条');
-    let added = 0, updated = 0;
-    for (const value of entries) {
-      const entry = this.rosterEntry(value);
-      const old = this.roster.get(entry.key);
-      this.roster.set(entry.key, entry); if (old) updated++; else added++;
+    if (!Array.isArray(entries) || entries.length > 2000) throw fail('单次最多上传 2000 条选手信息');
+    // Validate the entire batch before mutating; a bad item must not leave a partial upload.
+    const additions = new Map();
+    let skipped = 0;
+    for (const entry of entries.map(value => this.rosterEntry(value))) {
+      if (this.roster.has(entry.key) || additions.has(entry.key)) { skipped++; continue; }
+      additions.set(entry.key, entry);
     }
-    return { roster: this.rosterList(), added, updated };
+    if (this.roster.size + additions.size > 2000) throw fail('公共选手名册已满，请联系管理员清理', 503);
+    for (const [key, entry] of additions) this.roster.set(key, entry);
+    return { roster: this.rosterList(), added: additions.size, skipped };
+  }
+  updateRoster(key, value) {
+    if (typeof key !== 'string' || !key.trim()) throw fail('公共选手记录无效');
+    if (!this.roster.has(key)) throw fail('公共选手记录不存在', 404);
+    const entry = this.rosterEntry(value);
+    if (entry.key !== key && this.roster.has(entry.key)) throw fail('相同直播地址已存在，未修改', 409);
+    this.roster.delete(key);
+    this.roster.set(entry.key, entry);
+    return { roster: this.rosterList(true), updated: 1 };
+  }
+  deleteRoster(key) {
+    if (typeof key !== 'string' || !key.trim()) throw fail('公共选手记录无效');
+    if (!this.roster.delete(key)) throw fail('公共选手记录不存在', 404);
+    return { roster: this.rosterList(true), deleted: 1 };
   }
   summary(r, ended = false) {
     const m = r.match, sec = this.elapsed(r);
@@ -283,10 +302,19 @@ export class Rooms {
       }
       return { settings: clone(this.settings) };
     }
-    if (path === '/roster') return { roster: this.rosterList() };
+    if (path === '/roster') return { roster: this.rosterList(this.admin(s)) };
     if (path === '/roster/push') {
-      if (!this.admin(s)) throw fail('同步到服务端需要开发者权限', 403);
+      this.rate('roster:' + ip, 10);
+      this.rate('roster-session:' + s.id, 10);
       return this.pushRoster(body.entries);
+    }
+    if (path === '/roster/admin/update') {
+      if (!this.admin(s)) throw fail('需要开发者权限', 403);
+      return this.updateRoster(body.key, body.entry);
+    }
+    if (path === '/roster/admin/delete') {
+      if (!this.admin(s)) throw fail('需要开发者权限', 403);
+      return this.deleteRoster(body.key);
     }
     if (path === '/list') return { rooms: [...this.rooms.values()].map(r => this.view(r, s, false)), developer: this.admin(s) };
     if (path === '/create') {
@@ -367,15 +395,17 @@ export class Rooms {
       return { room: this.view(r, s) };
     }
     if (path === '/resume') {
-      this.host(s, r);
+      if (r.host !== s.id) throw fail('只有原裁判可以继续比赛；其他用户请先接管', 403);
       if (r.state !== 'mounted') throw fail('当前比赛不是暂停状态', 409);
       this.revision(r, body);
+      this.oneHost(s);
       const freshStart = !r.startedAt;
       r.state = 'playing'; r.anchor = this.now(); r.countdownEnd = 0;
       if (freshStart) {
         r.startedAt = r.anchor;
         r.match.started_at = new Date(r.startedAt).toISOString();
       }
+      if (!r.members.some(m => m.id === s.id)) r.members.push({ id: s.id, name: r.match.referee.title, seen: this.now() });
       this.changed(r);
       if (freshStart) this.notify(r, 'start');
       return { room: this.view(r, s) };

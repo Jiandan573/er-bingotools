@@ -2,8 +2,10 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const assert = require('node:assert/strict');
 const {pathToFileURL} = require('node:url');
 const {resolve} = require('node:path');
+const {mkdtempSync, rmSync} = require('node:fs');
+const {tmpdir} = require('node:os');
 const root = resolve(__dirname, '..');
-Object.assign(process.env,{RENDER:'true',QQ_APP_ID:'mock',QQ_APP_SECRET:'mock',QQ_GROUP_OPENID:'mock',BOT_CLIENT_KEY:'mock',QQ_EVENTS_ENABLED:'false',ALLOWED_ORIGINS:'null',BINGOTOOLS_DEV_CODE:'test-dev'});
+Object.assign(process.env,{DATABASE_URL:'',SUPABASE_DATABASE_URL:'',REQUIRE_ROOM_DATABASE:'false',RENDER:'true',QQ_APP_ID:'mock',QQ_APP_SECRET:'mock',QQ_GROUP_OPENID:'mock',BOT_CLIENT_KEY:'mock',QQ_EVENTS_ENABLED:'false',ALLOWED_ORIGINS:'null',BINGOTOOLS_DEV_CODE:'test-dev'});
 (async()=>{
  global.fetch=async(url)=>new Response(JSON.stringify(String(url).includes('getAppAccessToken')?{access_token:'mock',expires_in:7200}:{id:'mock-message'}));
  const {createServer}=await import(pathToFileURL(resolve(root, 'qqbot-service/server.mjs')).href);
@@ -14,6 +16,11 @@ Object.assign(process.env,{RENDER:'true',QQ_APP_ID:'mock',QQ_APP_SECRET:'mock',Q
  const errors=[];
 async function page(){const context=await browser.newContext({viewport:{width:1600,height:1100}});await context.addInitScript(url=>localStorage.setItem('bingotools_qq_bot_config',JSON.stringify({serviceUrl:url})),base);await context.route('**/*',route=>{const u=route.request().url();return /^(file:|http:\/\/127.0.0.1:)/.test(u)?route.continue():route.abort()});const p=await context.newPage();p.on('pageerror',e=>{errors.push(e.message);console.log('PAGEERROR',e.message)});p.on('dialog',d=>d.accept(d.type()==='prompt'?(d.message().includes('地址')?'https://live.bilibili.com/456':'观众测试'):undefined));await p.goto(pathToFileURL(resolve(root, 'index/bingotools-V17.html')).href);await p.waitForFunction(()=>document.getElementById('memoConnStatus').textContent.includes('已连接'));return p;}
  const host=await page(),guest=await page();
+ await host.evaluate(() => { savedStreamersList = [{name:'公开上传选手',id:'98765',platform:'bilibili'}]; });
+ await host.evaluate(() => BingoRooms.syncRosterToServer());
+ await guest.evaluate(() => BingoRooms.syncRosterFromServer());
+ assert.equal(await guest.evaluate(() => BingoRoster.getLocal().some(x=>x.name==='公开上传选手')), true);
+ await guest.evaluate(() => { savedStreamersList = []; });
  await host.locator('#beginMatchBtn').click();await host.locator('#refereeRoomInput').fill('123');await host.locator('#refereeTitleInput').fill('裁判测试');await host.locator('#saveAndStartMatchBtn').click();
  await host.waitForFunction(()=>window.BingoRooms.getRoom()?.state==='playing');
  const id=await host.evaluate(()=>window.BingoRooms.getRoom().id);
@@ -22,6 +29,10 @@ async function page(){const context=await browser.newContext({viewport:{width:16
  await host.evaluate(()=>adjustExtra(1,7));
  await guest.waitForFunction(()=>window.BingoRooms.getRoom()?.scores.red===7);
  await guest.evaluate(()=>adjustExtra(1,100));assert.equal(await guest.evaluate(()=>window.BingoRooms.getRoom().scores.red),7);
+ await host.locator('#pauseMatchBtn').click();await host.waitForFunction(()=>window.BingoRooms.getRoom()?.state==='mounted');
+ assert.equal(await host.locator('#pauseMatchBtn').textContent(),'继续比赛');
+ await host.locator('#pauseMatchBtn').click();await host.waitForFunction(()=>window.BingoRooms.getRoom()?.state==='playing');
+ assert.equal(await host.locator('#pauseMatchBtn').textContent(),'暂停比赛');
  await host.locator('#roomListBtn').click();await host.locator('#roomMount').click();await host.waitForFunction(()=>window.BingoRooms.getRoom()?.state==='mounted');await host.locator('#roomClose').click();
  await guest.locator('#roomListBtn').click();await guest.locator('#roomRefresh').click();await guest.locator('[data-op="takeover"][data-room="'+id+'"]').click();
  await guest.waitForFunction(()=>window.BingoRooms.getRoom()?.isHost===true);
@@ -33,9 +44,23 @@ async function page(){const context=await browser.newContext({viewport:{width:16
  await guest.waitForFunction(()=>window.BingoRooms.getRoom()?.state==='playing');
  if (await guest.locator('#roomClose').isVisible()) await guest.locator('#roomClose').click();await guest.evaluate(()=>showSetModal());await guest.locator('#setModal [data-set-tab="room"]').click();
  await guest.locator('#roomDevCode').fill('test-dev');await guest.locator('#roomDevLogin').click();await guest.locator('#roomDevControls').waitFor({state:'visible'});
+ const row=guest.locator('.room-roster-admin-row').filter({has:guest.locator('input[value="公开上传选手"]')});
+ await row.waitFor();
+ await row.locator('.roster-admin-name').fill('管理员修改选手');
+ await row.locator('[data-roster-op="save"]').click();
+ await guest.locator('input[value="管理员修改选手"]').waitFor();
+ await guest.locator('.room-roster-admin-row').filter({has:guest.locator('input[value="管理员修改选手"]')}).locator('[data-roster-op="delete"]').click();
+ await guest.locator('input[value="管理员修改选手"]').waitFor({state:'detached'});
  await guest.locator('#roomAutoEnabled').check();await guest.locator('#roomAutoSave').click();
- await host.locator('#roomMiniBtn').click();assert.equal(await host.locator('#roomMini').isVisible(),true);
- console.log('PASS: two clients, scoring, readonly, mount, takeover, end, history, developer settings, mini window');
+ assert.equal(await host.locator('#roomMiniBtn').count(),0);assert.equal(await host.locator('#roomMini').count(),0);
+ const offline=await page();
+ await offline.evaluate(()=>{BingoRooms.setOfflineMode(true);document.getElementById('beginMatchBtn').click();document.getElementById('pauseMatchBtn').click();});
+ assert.equal(await offline.locator('#pauseMatchBtn').textContent(),'继续比赛');
+ assert.equal(await offline.locator('#pauseMatchBtn').isEnabled(),true);
+ await offline.locator('#pauseMatchBtn').click();
+ assert.equal(await offline.evaluate(()=>stopwatchRunning),true);
+ assert.equal(await offline.locator('#pauseMatchBtn').textContent(),'暂停比赛');
+ console.log('PASS: two clients, scoring, readonly, pause/resume, mount, takeover, end, history, developer settings, no room mini');
 
  assert.deepEqual(errors,[]);
  }finally{await browser.close();await new Promise(r=>server.close(r));}

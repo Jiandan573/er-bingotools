@@ -38,24 +38,47 @@ test('public sessions, server-owned roles, CAS and fixed referee labels', () => 
   t.advance(8 * 3600000 + 1);
   assert.throws(() => t.call('/dev/settings'), /开发者/);
 });
-test('shared roster is readable by users and writable only by developer', () => {
+test('shared roster is readable and appendable by users, while only developer can edit or delete', () => {
   const t = setup();
   assert.deepEqual(t.call('/roster', {}, t.guest).roster, []);
-  assert.throws(() => t.call('/roster/push', { entries: [{ name: '红甲', id: '123' }] }, t.guest), /开发者/);
+  let publicResult = t.call('/roster/push', { entries: [{ name: '红甲', id: '123' }] }, t.guest);
+  assert.equal(publicResult.added, 1);
+  publicResult = t.call('/roster/push', { entries: [{ name: '红甲新名字', platform: 'bilibili', source: 'https://live.bilibili.com/123/', updatedAt: 2 }] }, t.guest);
+  assert.equal(publicResult.added, 0);
+  assert.equal(publicResult.skipped, 1);
+  assert.throws(() => t.call('/roster/admin/delete', { key: 'bilibili:https://live.bilibili.com/123' }, t.guest), /开发者/);
   t.call('/dev-auth', { code: 'test-dev' });
   let result = t.call('/roster/push', { entries: [
     { name: '红甲', id: '123', updatedAt: 1 },
-    { name: '红甲新名字', platform: 'bilibili', source: 'https://live.bilibili.com/123/', updatedAt: 2 },
     { name: '本地选手', platform: 'local', source: 'local' },
     { name: '无来源选手' }
   ] });
-  assert.equal(result.added, 3);
-  assert.equal(result.updated, 1);
+  assert.equal(result.added, 2);
+  assert.equal(result.skipped, 1);
   assert.equal(result.roster.length, 3);
-  assert.equal(result.roster.find(x => x.platform === 'bilibili').name, '红甲新名字');
+  const adminView = t.call('/roster', {}, t.host).roster;
+  const bilibili = adminView.find(x => x.platform === 'bilibili');
+  assert.ok(bilibili.key);
+  result = t.call('/roster/admin/update', { key: bilibili.key, entry: { name: '红甲新名字', platform: 'bilibili', source: '123' } });
+  assert.equal(result.updated, 1);
+  assert.equal(t.call('/roster', {}, t.guest).roster.find(x => x.platform === 'bilibili').name, '红甲新名字');
+  t.call('/roster/admin/delete', { key: 'local:本地选手' });
   const guestView = t.call('/roster', {}, t.guest).roster;
-  assert.equal(guestView.length, 3);
-  assert.equal(guestView.some(x => x.platform === 'local' && x.source === 'local'), true);
+  assert.equal(guestView.length, 2);
+  assert.equal(guestView.some(x => x.platform === 'local' && x.source === 'local'), false);
+});
+test('public roster batches are atomic, capped, rate limited and cannot overwrite records', () => {
+  const t = setup();
+  assert.throws(() => t.call('/roster/push', { entries: [{ name: 'valid', id: '5' }, { name: '' }] }), /文字/);
+  assert.equal(t.call('/roster').roster.length, 0);
+  assert.throws(() => t.call('/roster/push', { entries: Array(2001).fill({ name: 'x', id: '5' }) }), /2000/);
+  t.call('/roster/push', { entries: [{ name: 'one', id: '5' }, { name: 'two', id: '6' }] });
+  assert.throws(() => t.call('/roster/admin/update', { key: 'bilibili:https://live.bilibili.com/5', entry: { name: 'bad', id: '6' } }, t.guest), /开发者/);
+  t.call('/dev-auth', { code: 'test-dev' });
+  assert.throws(() => t.call('/roster/admin/update', { key: 'bilibili:https://live.bilibili.com/5', entry: { name: 'bad', id: '6' } }), e => e.status === 409);
+  assert.equal(t.call('/roster').roster.find(x => x.source.endsWith('/5')).name, 'one');
+  for (let i = 0; i < 7; i++) t.call('/roster/push', { entries: [] });
+  assert.throws(() => t.call('/roster/push', { entries: [] }), e => e.status === 429);
 });
 test('start notify, atomic takeover, frozen time, end dedupe and history reset', async () => {
   const t = setup(); let r = t.create();

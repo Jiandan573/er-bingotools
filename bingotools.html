@@ -2804,9 +2804,9 @@ input[type="number"].wheel-adjust-active {
         <button type="button" class="modal-btn" style="background:#546e7a; padding: 8px 14px; font-size: 14px;" onclick="exportStreamersConfig()">导出设置</button>
         <button type="button" class="modal-btn" style="background:#6d4c41; padding: 8px 14px; font-size: 14px;" onclick="triggerImportStreamers()">导入设置</button>
         <button type="button" class="modal-btn" style="background:#455a64; padding: 8px 14px; font-size: 14px;" onclick="syncRosterFromServer()">从服务端同步</button>
-        <button type="button" class="modal-btn" style="background:#2e7d32; padding: 8px 14px; font-size: 14px;" onclick="syncRosterToServer()">同步到服务端</button>
+        <button type="button" class="modal-btn" style="background:#2e7d32; padding: 8px 14px; font-size: 14px;" onclick="syncRosterToServer()">上传到公共数据库</button>
       </div>
-      <p class="live-capture-hint" style="margin:8px 0 0">同步是手动触发的：连接用户可以合并服务端名单；上传公共名单需要管理员权限。</p>
+      <p class="live-capture-hint" style="margin:8px 0 0">同步是手动触发的：所有用户都可以上传本机名单到公共数据库；相同直播地址会自动跳过。管理员可以在房间设置中修改或删除公共记录。</p>
     </div>
 
     <input type="file" id="importStreamersFile" accept=".txt,text/plain" class="modal-hide" onchange="onImportStreamersFile(event)">
@@ -3124,6 +3124,14 @@ input[type="number"].wheel-adjust-active {
               <div class="set-live-toolbar" style="margin-top:10px">
                 <button type="button" class="btn-live btn-set-action" id="roomAutoSave">保存服务端设置</button>
               </div>
+            </div>
+            <div class="set-ui-card" style="margin-top:12px">
+              <div class="set-ui-card-label">公共选手名册管理</div>
+              <p class="live-capture-hint" style="margin:6px 0">管理员可以修改或删除公共数据库中的选手信息。</p>
+              <div class="set-live-toolbar" style="margin-top:8px">
+                <button type="button" class="btn-live btn-set-action" id="roomRosterAdminRefresh">刷新公共名册</button>
+              </div>
+              <div id="roomRosterAdminList" style="margin-top:10px"></div>
             </div>
           </div>
         </section>
@@ -8556,7 +8564,7 @@ document.addEventListener('keydown', (e) => {
   try { saved = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch {}
   let room = null, listing = [], offset = 0, connected = false, busy = false, connecting = null;
   let dirty = false, generation = 0, updateTimer, pollBusy = false, lastBeat = 0, developer = false, createOnly = false;
-  let previousRoom = '', popup = false, pinned = false;
+  let previousRoom = '', localPaused = false;
   const states = { waiting: '等待开始', countdown: '准备倒计时', playing: '比赛进行中', mounted: '已挂载（暂停）', ended: '比赛已结束' };
   const store = () => localStorage.setItem(KEY, JSON.stringify(saved));
   const isOffline = () => !!saved.offlineMode;
@@ -8627,10 +8635,49 @@ document.addEventListener('keydown', (e) => {
     return run(async () => {
       if (isOffline()) throw new Error('单机模式不能同步服务端选手名册');
       if (!connected) await connect();
-      if (!developer) throw new Error('同步到服务端需要开发者权限');
       const data = await api('/roster/push', { entries: localRoster() });
-      if (window.BingoRoster?.mergeFromServer) window.BingoRoster.mergeFromServer(data.roster || []);
-      showToast(`已同步到服务端：新增 ${data.added || 0} 条，更新 ${data.updated || 0} 条`);
+      showToast(`已上传到公共数据库：新增 ${data.added || 0} 条，重复跳过 ${data.skipped || 0} 条`);
+    });
+  }
+
+  async function refreshRosterAdmin() {
+    if (!developer) throw new Error('需要管理员权限');
+    if (!connected) await connect();
+    const data = await api('/roster');
+    const list = $('roomRosterAdminList');
+    if (!list) return;
+    list.innerHTML = (data.roster || []).map(entry => `<div class="room-roster-admin-row" data-key="${esc(entry.key)}">
+      <input class="modal-input roster-admin-name" value="${esc(entry.name)}" aria-label="选手名称">
+      <select class="modal-input roster-admin-platform" aria-label="平台">
+        <option value="bilibili" ${entry.platform === 'bilibili' ? 'selected' : ''}>Bilibili</option>
+        <option value="douyin" ${entry.platform === 'douyin' ? 'selected' : ''}>抖音</option>
+        <option value="local" ${entry.platform === 'local' ? 'selected' : ''}>本地</option>
+        <option value="" ${!entry.platform ? 'selected' : ''}>无平台</option>
+      </select>
+      <input class="modal-input roster-admin-source" value="${esc(entry.source || '')}" aria-label="直播地址">
+      <button type="button" class="btn-live btn-set-action" data-roster-op="save">保存</button>
+      <button type="button" class="btn-live" style="background:#7b2d2d" data-roster-op="delete">删除</button>
+    </div>`).join('') || '<p class="live-capture-hint">公共名册暂无记录</p>';
+  }
+  async function adminRosterAction(event) {
+    const button = event.target.closest('[data-roster-op]');
+    const row = event.target.closest('.room-roster-admin-row');
+    if (!button || !row) return;
+    await run(async () => {
+      const key = row.dataset.key;
+      if (button.dataset.rosterOp === 'delete') {
+        if (!confirm('确认删除这条公共选手记录？')) return;
+        await api('/roster/admin/delete', { key });
+        showToast('公共选手记录已删除');
+      } else {
+        await api('/roster/admin/update', { key, entry: {
+          name: row.querySelector('.roster-admin-name').value.trim(),
+          platform: row.querySelector('.roster-admin-platform').value,
+          source: row.querySelector('.roster-admin-source').value.trim()
+        }});
+        showToast('公共选手记录已更新');
+      }
+      await refreshRosterAdmin();
     });
   }
 
@@ -8836,8 +8883,10 @@ document.addEventListener('keydown', (e) => {
   function applyTimerButtonLabels() {
     const begin = $('beginMatchBtn'), pause = $('pauseMatchBtn'), end = $('endMatchBtn');
     const offlineTimer = isOffline() && !room;
-    if (begin) begin.textContent = offlineTimer ? '开始计时' : (room?.state === 'mounted' && room.canControl ? '继续比赛' : '开始比赛');
-    if (pause) pause.textContent = offlineTimer ? '暂停' : '暂停比赛';
+    if (begin) begin.textContent = offlineTimer ? '开始计时' : '开始比赛';
+    if (pause) pause.textContent = offlineTimer
+      ? (stopwatchRunning ? '暂停比赛' : (localPaused ? '继续比赛' : '暂停比赛'))
+      : (room?.state === 'mounted' ? '继续比赛' : (!room && localPaused ? '继续比赛' : '暂停比赛'));
     if (end) end.textContent = offlineTimer ? '重置' : '比赛结束';
   }
   function chrome() {
@@ -8846,13 +8895,14 @@ document.addEventListener('keydown', (e) => {
     const offlineTimer = isOffline() && !room;
     const localRunning = !room && typeof activeMatch !== 'undefined' && activeMatch && !activeMatch.endedAt;
     const canPauseRoom = !!room?.canControl && ['waiting', 'playing', 'countdown'].includes(room?.state);
+    const canResumeRoom = !!room?.isHost && room?.state === 'mounted';
     if (offlineTimer) {
-      $('beginMatchBtn').disabled = busy || !!stopwatchRunning;
-      if ($('pauseMatchBtn')) $('pauseMatchBtn').disabled = busy || !stopwatchRunning;
-      if ($('endMatchBtn')) $('endMatchBtn').disabled = busy || (!stopwatchRunning && !(stopwatchSeconds > 0));
+      $('beginMatchBtn').disabled = busy || !!stopwatchRunning || localPaused;
+      if ($('pauseMatchBtn')) $('pauseMatchBtn').disabled = busy || (!stopwatchRunning && !localPaused && !(stopwatchSeconds > 0));
+      if ($('endMatchBtn')) $('endMatchBtn').disabled = busy || (!stopwatchRunning && !localPaused && !(stopwatchSeconds > 0));
     } else {
       $('beginMatchBtn').disabled = busy || localRunning || (!!room && (!room.canControl || room.state !== 'waiting'));
-      if ($('pauseMatchBtn')) $('pauseMatchBtn').disabled = busy || (!canPauseRoom && !(localRunning && stopwatchRunning));
+      if ($('pauseMatchBtn')) $('pauseMatchBtn').disabled = busy || (!canPauseRoom && !canResumeRoom && !(localRunning && (stopwatchRunning || localPaused)));
       if ($('endMatchBtn')) {
         $('endMatchBtn').disabled = busy || (room
           ? (!room.canControl || ['ended', 'mounted'].includes(room.state))
@@ -8888,17 +8938,19 @@ document.addEventListener('keydown', (e) => {
     if (typeof updateSetServerVisibility === 'function') updateSetServerVisibility(developer);
     document.body.classList.toggle('room-readonly', !!room && !canEdit());
     document.body.classList.toggle('offline-mode', isOffline());
-    if (popup) mini();
   }
   function startOfflineTimer() {
+    localPaused = false;
     if (typeof startStopwatch === 'function') startStopwatch();
     chrome();
   }
   function pauseOfflineTimer() {
+    localPaused = true;
     if (typeof pauseStopwatch === 'function') pauseStopwatch();
     chrome();
   }
   function resetOfflineTimer() {
+    localPaused = false;
     if (typeof resetStopwatch === 'function') resetStopwatch();
     if (typeof activeMatch !== 'undefined' && activeMatch && !activeMatch.endedAt) {
       activeMatch.endedAt = new Date().toISOString();
@@ -8906,21 +8958,6 @@ document.addEventListener('keydown', (e) => {
       if (typeof saveActiveMatch === 'function') saveActiveMatch();
     }
     chrome();
-  }
-  function mini() {
-    if (!popup || !$('roomMini')) return;
-    const b = room?.board || collectBoard();
-    const scores = room?.scores || currentMatchScores();
-    const left = room?.match?.left?.name || (typeof settings !== 'undefined' ? settings.redTeamName : '红方');
-    const right = room?.match?.right?.name || (typeof settings !== 'undefined' ? settings.blueTeamName : '蓝方');
-    $('roomMiniTitle').textContent = `${left} ${scores.red ?? 0} : ${scores.blue ?? 0} ${right} · ${clock(stopwatchSeconds)}`;
-    $('roomMiniGrid').innerHTML = b.red.map((v, i) => `<div style="background:${v && b.blue[i] ? '#795548' : v ? '#782626' : b.blue[i] ? '#254b7e' : '#25272c'}">${esc(b.cellTexts?.[i] || i + 1)}</div>`).join('');
-  }
-  function toggleMini() {
-    popup = !popup;
-    if ($('roomMini')) $('roomMini').hidden = !popup;
-    if (popup) mini();
-    if (!popup && pinned) { pinned = false; window.runtime?.WindowSetAlwaysOnTop?.(false); }
   }
   let lastReceivedAt = now();
   const originalAccept = accept;
@@ -9062,29 +9099,33 @@ document.addEventListener('keydown', (e) => {
   }
   async function pauseMatch() {
     if (isOffline() && !room) {
-      pauseOfflineTimer();
+      if (stopwatchRunning) pauseOfflineTimer();
+      else if (localPaused) startOfflineTimer();
+      return;
+    }
+    if (room?.isHost && room.state === 'mounted') {
+      await resumeMatch();
       return;
     }
     if (room?.canControl && ['waiting', 'playing', 'countdown'].includes(room.state)) {
-      await run(() => action('/mount'));
-      showToast('比赛已挂载并暂停');
+      await run(async () => { await action('/mount'); showToast('比赛已暂停并保存'); });
       return;
     }
     if (!room && typeof activeMatch !== 'undefined' && activeMatch && !activeMatch.endedAt) {
-      pauseStopwatch();
-      showToast('计时已暂停');
+      if (stopwatchRunning) { localPaused = true; pauseStopwatch(); }
+      else { localPaused = false; startStopwatch(); }
+      showToast(localPaused ? '计时已暂停' : '计时已继续');
       chrome();
       return;
     }
     showToast('当前没有可暂停的比赛');
   }
   async function resumeMatch() {
-    if (!room?.canControl || room.state !== 'mounted') {
+    if (!room?.isHost || room.state !== 'mounted') {
       showToast('只有原裁判或接管后的裁判可以继续比赛');
       return;
     }
-    await run(() => action('/resume'));
-    showToast('比赛已继续，不重复发送开始播报');
+    await run(async () => { await action('/resume'); showToast('比赛已继续'); });
   }
   async function refreshList() {
     const data = await api('/list');
@@ -9251,10 +9292,9 @@ document.addEventListener('keydown', (e) => {
       '.room-readonly .add-score-btn,.room-readonly .extra-score-btns,.room-readonly .btn-reset{pointer-events:none;opacity:.55}',
       '#roomDetail{white-space:pre-wrap;overflow:auto;margin:0;padding:0;background:transparent;border:none;font-size:13px;line-height:1.7;color:#ddd;font-family:inherit;flex:1;min-height:0}',
       '.room-card-actions .modal-btn.is-active{outline:1px solid #ffcc80}',
-      '#roomMini{position:fixed;top:70px;left:30px;width:460px;height:420px;min-width:250px;min-height:250px;resize:both;overflow:auto;background:#16181c;border:1px solid #777;z-index:1200;padding:12px;border-radius:10px}',
-      '#roomMiniBar{cursor:move;touch-action:none}',
-      '#roomMiniGrid{display:grid;grid-template-columns:repeat(5,1fr);gap:3px;height:80%}',
-      '#roomMiniGrid>div{padding:5px;overflow:hidden;display:flex;align-items:center;justify-content:center}'
+      '.room-roster-admin-row{display:grid;grid-template-columns:1fr 100px 1.5fr auto auto;gap:6px;align-items:center;margin:6px 0}',
+      '.room-roster-admin-row .modal-input{min-width:0;padding:6px 8px;font-size:12px}',
+      '.room-roster-admin-row .btn-live{padding:6px 8px;font-size:12px;white-space:nowrap}',
     ].join('');
     document.head.append(style);
     const toolbar = $('btnsToolbar');
@@ -9266,28 +9306,20 @@ document.addEventListener('keydown', (e) => {
       const row = $('btRoomBtnRow');
       if (row) {
         row.querySelectorAll('button').forEach(btn => {
-          if (btn.id === 'beginMatchBtn' || btn.id === 'endMatchBtn' || btn.id === 'roomMiniBtn') { btn.remove(); return; }
+          if (btn.id === 'beginMatchBtn' || btn.id === 'endMatchBtn') { btn.remove(); return; }
           btns.appendChild(btn);
         });
         row.remove();
       }
-      const miniBtn = $('roomMiniBtn');
-      if (miniBtn) miniBtn.remove();
       if (!$('roomListBtn')) {
         const list = document.createElement('button');
         list.type = 'button'; list.className = 'btn-set bt-room-btn'; list.id = 'roomListBtn'; list.textContent = '比赛列表';
         btns.appendChild(list);
       }
-      if (!$('roomMiniBtn')) {
-        const miniButton = document.createElement('button');
-        miniButton.type = 'button'; miniButton.className = 'btn-set bt-room-btn'; miniButton.id = 'roomMiniBtn'; miniButton.textContent = '小窗';
-        btns.appendChild(miniButton);
-      }
     }
     const wrap = $('bingoTableWrap');
     if (wrap) wrap.classList.remove('bt-has-room-row');
     if ($('roomModal')) $('roomModal').remove();
-    if ($('roomMini')) $('roomMini').remove();
     const root = document.createElement('div');
     root.innerHTML = `<div id="roomModal" class="modal-overlay modal-hide"><div class="modal room-modal">
       <div class="room-modal-head"><h2 class="modal-title">比赛列表</h2><button type="button" class="modal-btn btn-cancel" id="roomClose">关闭</button></div>
@@ -9320,39 +9352,22 @@ document.addEventListener('keydown', (e) => {
           </div>
         </div>
       </div>
-    </div></div><div id="roomMini" hidden><div id="roomMiniBar"><b>比赛小窗（拖动）</b> <button type="button" id="roomMiniClose">关闭</button> <button type="button" id="roomPin">置顶</button>
-      <input type="number" id="roomFont" value="18" min="8" max="72" aria-label="小窗字体" style="width:52px"></div><p id="roomMiniTitle"></p><div id="roomMiniGrid"></div></div>`;
+    </div></div>`;
     document.body.append(root);
     const on = (id, fn) => { const node = $(id); if (node) node.onclick = fn; };
     on('roomListBtn', openList);
     on('beginMatchBtn', () => {
       if (isOffline() && !room) { startOfflineTimer(); return; }
-      if (room?.state === 'mounted' && room.canControl) { resumeMatch(); return; }
       form(false);
     });
     on('endMatchBtn', finish);
     on('endLocalOnlyBtn', () => typeof endMatchLocally === 'function' && endMatchLocally());
     on('roomClose', () => $('roomModal').classList.add('modal-hide'));
-    on('roomMiniBtn', toggleMini); on('roomMiniClose', toggleMini);
-    on('roomPin', () => { pinned = !pinned; window.runtime?.WindowSetAlwaysOnTop?.(pinned); });
-    if ($('roomPin')) $('roomPin').disabled = !window.runtime?.WindowSetAlwaysOnTop;
-    if ($('roomPin')) $('roomPin').title = '桌面版支持窗口置顶';
-    if ($('roomFont')) $('roomFont').oninput = () => { $('roomMiniGrid').style.fontSize = Math.max(8, Math.min(72, Number($('roomFont').value))) + 'px'; };
-    let drag;
-    if ($('roomMiniBar')) $('roomMiniBar').onpointerdown = e => {
-      if (e.target.closest('button,input')) return;
-      drag = { x: e.clientX, y: e.clientY, left: $('roomMini').offsetLeft, top: $('roomMini').offsetTop };
-      $('roomMiniBar').setPointerCapture(e.pointerId);
-    };
-    if ($('roomMiniBar')) $('roomMiniBar').onpointermove = e => {
-      if (!drag) return;
-      $('roomMini').style.left = Math.max(0, Math.min(innerWidth - 100, drag.left + e.clientX - drag.x)) + 'px';
-      $('roomMini').style.top = Math.max(0, Math.min(innerHeight - 50, drag.top + e.clientY - drag.y)) + 'px';
-    };
-    if ($('roomMiniBar')) $('roomMiniBar').onpointerup = () => { drag = null; };
     on('roomRefresh', () => run(async () => { await connect(); await refreshList(); }));
     on('roomCreate', () => { $('roomModal').classList.add('modal-hide'); form(true); });
     if ($('roomCards')) $('roomCards').onclick = card;
+    if ($('roomRosterAdminList')) $('roomRosterAdminList').onclick = adminRosterAction;
+    on('roomRosterAdminRefresh', () => run(refreshRosterAdmin));
     on('roomMount', () => run(() => action('/mount')));
     on('roomDelete', () => run(async () => {
       if (!room) return;
@@ -9386,6 +9401,7 @@ document.addEventListener('keydown', (e) => {
       await api('/dev-auth', { code: $('roomDevCode').value }); $('roomDevCode').value = ''; developer = true;
       const data = await api('/dev/settings');
       $('roomAutoEnabled').checked = data.settings.enabled; $('roomAutoInterval').value = data.settings.interval;
+      await refreshRosterAdmin();
       if (typeof switchSetTab === 'function') switchSetTab('room');
       chrome();
       showToast('管理员已开启');
@@ -9450,7 +9466,7 @@ document.addEventListener('keydown', (e) => {
   window.BingoRooms = {
     connect, openList, collectBoard, applyBoard, getRoom: () => room, isConnected: () => connected, serviceUrl: service,
     isDeveloper: () => developer, isOffline, setOfflineMode, pauseMatch,
-    syncRosterFromServer, syncRosterToServer,
+    syncRosterFromServer, syncRosterToServer, refreshRosterAdmin,
     setHint: (message, isErr) => {
       if (isErr) paintConn('is-err', connected ? '已连接' : '未连接', message || '', true);
       else if (isOffline()) paintConn('is-off', '单机模式', message || '未连接服务器，仅本地使用');

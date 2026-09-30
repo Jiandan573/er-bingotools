@@ -65,16 +65,20 @@ test('public room module is embedded identically and keeps one main match contro
   assert.match(client, /服务器已重启/);
   assert.match(client, /offlineMode|isOffline|setOfflineMode/);
   assert.match(client, /deleteRoom|pauseMatch/);
+  assert.match(client, /resumeMatch/);
+  assert.doesNotMatch(client, /roomMini|roomPin|toggleMini/);
   assert.match(client, /开始计时|startOfflineTimer/);
   assert.match(client, /syncRosterFromServer|syncRosterToServer/);
   assert.match(html, /从服务端同步/);
-  assert.match(html, /同步到服务端/);
+  assert.match(html, /上传到公共数据库/);
   assert.match(html, /window\.BingoRoster/);
 });
 
 test('roster sync APIs and V18 standalone output are wired', () => {
   assert.match(clientSource(), /api\('\/roster'/);
   assert.match(clientSource(), /api\('\/roster\/push'/);
+  assert.match(clientSource(), /api\('\/roster\/admin\/update'/);
+  assert.match(clientSource(), /api\('\/roster\/admin\/delete'/);
   assert.ok(readFileSync(new URL('../index/bingotools-V18.html', import.meta.url), 'utf8').includes('ROOM_V2_START'));
 });
 
