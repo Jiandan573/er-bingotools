@@ -10,6 +10,7 @@ on:
   push:
     branches: [master]
     paths:
+      - .github/workflows/release-rooms.yml
       - bingotools.html
       - frontend/**
       - index/**
