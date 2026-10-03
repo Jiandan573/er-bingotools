@@ -131,4 +131,38 @@ export class Matches {
     }
     return result + (rows.length > 10 ? '\n\n其余比赛暂未展示。' : '');
   }
+
+  async activeRows() {
+    const db = this.db();
+    return db ? (await db.query("SELECT data FROM bingotools_live_matches WHERE data->>'state'='active' ORDER BY data->>'updated_at' DESC")).rows.map(r => r.data) :
+      [...this.memory.values()].filter(r => r.state === 'active').map(r => structuredClone(r));
+  }
+
+  async cancel(id) {
+    this.checkId(id);
+    return this.locked(id, async () => {
+      const row = await this.get(id);
+      if (!row) throw error('未找到比赛记录', 404);
+      if (row.state !== 'active') return { ok: true, match_id: id, alreadyInactive: true };
+      row.state = 'cancelled';
+      row.cancelled_at = new Date().toISOString();
+      await this.save(row);
+      return { ok: true, match_id: id, cancelled: true };
+    });
+  }
+
+  async cancelByRefereeRooms(targets) {
+    const wanted = new Set(targets.map(value => String(value).trim()).filter(Boolean));
+    if (!wanted.size) return 0;
+    const rows = await this.activeRows();
+    let count = 0;
+    for (const row of rows) {
+      const room = String(row.match?.referee?.room || '').trim();
+      const full = room.startsWith('http') ? room : `https://live.bilibili.com/${room}`;
+      if (!wanted.has(room) && !wanted.has(full)) continue;
+      await this.cancel(row.id);
+      count++;
+    }
+    return count;
+  }
 }

@@ -377,6 +377,9 @@ async function initDatabase() {
     await rooms.ready();
     databaseReady = true;
     console.log('[database] ready');
+    const cleanup = String(process.env.LEGACY_CANCEL_REFEREE_ROOMS || '').split(',');
+    const cancelled = await matches.cancelByRefereeRooms(cleanup);
+    if (cancelled) console.log(`[database] cancelled ${cancelled} configured legacy v1 match(es)`);
   } catch (error) {
     databaseReady = false;
     console.error('[database] initialization failed:', safeError(error.message || error));
