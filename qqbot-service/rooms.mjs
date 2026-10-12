@@ -98,6 +98,18 @@ export class Rooms {
     if (!r) throw fail('房间不存在：已被删除，或数据库中没有该记录', 404);
     return r;
   }
+  removeByIds(ids) {
+    if (!Array.isArray(ids)) return 0;
+    const wanted = new Set(ids.map(id => String(id).trim()).filter(Boolean));
+    let removed = 0;
+    for (const id of wanted) {
+      if (this.rooms.delete(id)) removed++;
+    }
+    for (const [requestId, roomId] of this.remountByRequest) {
+      if (wanted.has(roomId)) this.remountByRequest.delete(requestId);
+    }
+    return removed;
+  }
   oneHost(s) {
     if (this.admin(s)) return;
     if ([...this.rooms.values()].some(r => r.host === s.id && !['ended', 'mounted'].includes(r.state)))

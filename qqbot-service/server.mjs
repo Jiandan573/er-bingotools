@@ -376,6 +376,15 @@ async function initDatabase() {
     rooms.store = roomStore;
     rooms.persistenceReady = false;
     await rooms.ready();
+    const cleanupIds = String(process.env.ROOM_CLEANUP_IDS || '')
+      .split(',')
+      .map(value => value.trim())
+      .filter(Boolean);
+    const removedRooms = rooms.removeByIds(cleanupIds);
+    if (removedRooms) {
+      await rooms.persist();
+      console.log(`[database] removed ${removedRooms} configured room(s)`);
+    }
     databaseReady = true;
     console.log('[database] ready');
     const cleanup = String(process.env.LEGACY_CANCEL_REFEREE_ROOMS || '').split(',');
@@ -423,7 +432,7 @@ async function handleRequest(req, res) {
       if (req.method !== 'POST') throw fail('请使用 POST', 405);
       if ((process.env.REQUIRE_ROOM_DATABASE === 'true' || DATABASE_URL) && !databaseReady) throw fail('数据库尚未就绪，房间数据暂不可用，请稍后重试', 503);
       const token = String(req.headers.authorization || '').replace(/^Bearer /, '');
-      // Render terminates traffic at its proxy. Use the rightmost hop, never a
+      // Render terminates traffic at Render's proxy. Use the rightmost hop, never a
       // client-supplied leftmost address, for rate limiting.
       const forwarded = process.env.RENDER === 'true' ? String(req.headers['x-forwarded-for'] || '').split(',').at(-1)?.trim() : '';
       const result = rooms.handle(path.slice('/api/v2'.length), await readJsonBody(req, 131072), token, forwarded || req.socket.remoteAddress);
