@@ -3576,24 +3576,81 @@ function isGoBound() {
   return !!(window.go && window.go.app && window.go.app.App && typeof window.go.app.App.ResolveLive === 'function');
 }
 
-function stopNetworkStream(side) {
+// 每侧独立的恢复会话；串行 ResolveLive 防止旧请求覆盖代理缓存。
+const liveRecovery = { 1: null, 2: null };
+const liveResolveQueue = { 1: Promise.resolve(), 2: Promise.resolve() };
+const LIVE_RETRY_DELAYS = [2000, 4000, 8000, 16000, 30000];
+function cancelLiveRecovery(side) {
+  const state = liveRecovery[side];
+  liveRecovery[side] = null;
+  if (!state) return;
+  clearTimeout(state.retryTimer);
+  clearInterval(state.watchdog);
+  state.cleanup.forEach(fn => fn());
+}
+function recoverLive(side, state, reason) {
+  if (liveRecovery[side] !== state || state.retryTimer || state.loading || state.exhausted) return;
+  state.stableSince = 0;
+  if (state.attempts >= LIVE_RETRY_DELAYS.length) {
+    state.exhausted = true;
+    destroyNetworkPlayer(side);
+    setLiveTip(side, '直播自动恢复失败', '已重试5次，请检查网络或直播状态后手动刷新');
+    return;
+  }
+  const delay = LIVE_RETRY_DELAYS[state.attempts++];
+  console.warn('直播恢复', side, reason, state.attempts);
+  destroyNetworkPlayer(side);
+  state.retryTimer = setTimeout(() => {
+    state.retryTimer = null;
+    if (liveRecovery[side] === state) loadStream(side, state.source, state);
+  }, delay);
+}
+function watchLivePlayback(side, state, video) {
+  const fail = () => recoverLive(side, state, 'video error/ended');
+  video.addEventListener('error', fail);
+  video.addEventListener('ended', fail);
+  state.cleanup.push(() => {
+    video.removeEventListener('error', fail);
+    video.removeEventListener('ended', fail);
+  });
+  state.lastProgress = Date.now();
+  state.lastTime = video.currentTime;
+  state.watchdog = setInterval(() => {
+    if (liveRecovery[side] !== state || state.loading || state.retryTimer || state.exhausted) return;
+    const now = Date.now();
+    if (!video.paused && video.currentTime !== state.lastTime) {
+      state.hasProgress = true;
+      state.lastTime = video.currentTime;
+      state.lastProgress = now;
+      if (!state.stableSince) state.stableSince = now;
+      if (now - state.stableSince >= 60000) state.attempts = 0;
+    } else {
+      state.stableSince = 0;
+      // 暂停由用户或延迟功能控制；不主动打断暂停。
+      if ((!video.paused || !state.hasProgress) && now - state.lastProgress >= 30000) recoverLive(side, state, '播放无进展');
+    }
+  }, 3000);
+}
+function destroyNetworkPlayer(side) {
   liveStreamKinds[side] = '';
+  const old = liveStreamPlayers[side];
+  liveStreamPlayers[side] = null;
+  if (old) { try { old.destroy(); } catch (e) {} }
   const video = document.getElementById('liveVideo' + side);
   if (video) {
     video.pause();
     video.removeAttribute('src');
-    video.src = '';
     video.load();
-    video.classList.add('hide');
-  }
-  const old = liveStreamPlayers[side];
-  if (old) {
-    try { old.destroy(); } catch (e) {}
-    liveStreamPlayers[side] = null;
   }
 }
+function stopNetworkStream(side) {
+  cancelLiveRecovery(side);
+  destroyNetworkPlayer(side);
+  const video = document.getElementById('liveVideo' + side);
+  if (video) video.classList.add('hide');
+}
 
-async function loadStream(side, source) {
+async function loadStream(side, source, recoveryState = null) {
   if (side !== 1 && side !== 2) return;
   if (!source || !source.type) return;
   stopLiveIframe(side);
@@ -3605,6 +3662,13 @@ async function loadStream(side, source) {
     loadBilibiliEmbed(side, source.value);
     return;
   }
+  let state = recoveryState;
+  if (!state) {
+    stopNetworkStream(side);
+    state = { source: { ...source }, attempts: 0, retryTimer: null, cleanup: [], loading: false, stableSince: 0 };
+    liveRecovery[side] = state;
+  }
+  if (liveRecovery[side] !== state) return;
   const video = document.getElementById('liveVideo' + side);
   const localVideo = document.getElementById('localVideo' + side);
   const tip = document.getElementById('tip' + side);
@@ -3617,11 +3681,24 @@ async function loadStream(side, source) {
   if (tip) tip.classList.add('hide');
 
   if (!isGoBound()) {
+    cancelLiveRecovery(side);
     setLiveTip(side, '未连接到桌面后端', '请通过 Wails 应用打开');
     return;
   }
+  state.loading = true;
   try {
-    const res = await window.go.app.App.ResolveLive(side, source.type + ':' + source.value);
+    const request = liveResolveQueue[side].catch(() => {}).then(() => {
+      if (liveRecovery[side] !== state) return null;
+      return window.go.app.App.ResolveLive(side, source.type + ':' + source.value);
+    });
+    liveResolveQueue[side] = request;
+    const res = await request;
+    if (liveRecovery[side] !== state || !res) return;
+    clearInterval(state.watchdog);
+    state.cleanup.splice(0).forEach(fn => fn());
+    state.loading = false;
+    state.hasProgress = false;
+    watchLivePlayback(side, state, video);
     liveStreamKinds[side] = res.kind || 'hls';
 
     const old = liveStreamPlayers[side];
@@ -3637,26 +3714,30 @@ async function loadStream(side, source) {
         cors: false
       });
       liveStreamPlayers[side] = player;
+      player.on(flvjs.Events.ERROR, () => {
+        if (liveStreamPlayers[side] === player) recoverLive(side, state, 'FLV error');
+      });
       player.attachMediaElement(video);
       player.load();
-      player.play();
+      const playing = player.play();
+      if (playing && playing.catch) playing.catch(() => {});
     } else if (res.kind === 'hls') {
       if (typeof Hls !== 'undefined' && Hls.isSupported()) {
         const player = new Hls({ enableWorker: true, liveSyncDurationCount: 3 });
         liveStreamPlayers[side] = player;
         player.loadSource('/live/stream/' + side);
         player.attachMedia(video);
-        player.on(Hls.Events.MANIFEST_PARSED, () => { video.play().catch(() => {}); });
+        player.on(Hls.Events.MANIFEST_PARSED, () => {
+          if (liveRecovery[side] === state && liveStreamPlayers[side] === player) video.play().catch(() => {});
+        });
         player.on(Hls.Events.ERROR, (e, d) => {
-          if (d.fatal) {
-            console.error('HLS fatal error', d);
-            showToast('直播加载失败：' + (d.type || 'unknown'));
-          }
+          if (d.fatal && liveStreamPlayers[side] === player) recoverLive(side, state, d.type || 'HLS error');
         });
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
         video.src = '/live/stream/' + side;
         video.play().catch(() => {});
       } else {
+        stopNetworkStream(side);
         setLiveTip(side, '当前浏览器不支持 HLS 播放', '');
         return;
       }
@@ -3668,8 +3749,12 @@ async function loadStream(side, source) {
     applyLiveMute(side);
     syncLiveOverlayForSide(side);
   } catch (e) {
+    if (liveRecovery[side] !== state) return;
     console.error('ResolveLive error', e);
-    setLiveTip(side, '取流失败', e && e.message ? e.message : '');
+    state.loading = false;
+    recoverLive(side, state, '取流失败');
+  } finally {
+    state.loading = false;
   }
 }
 // ---------- P4 网络流播放工具结束 ----------
