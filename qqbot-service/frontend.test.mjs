@@ -36,6 +36,9 @@ test('local file page sends authenticated API request and omits participant titl
   vm.runInContext(html.slice(html.indexOf('function getParticipantPayload('),html.indexOf('function buildMatchStartPayload(')),ctx);
   const red=vm.runInContext('getParticipantPayload(1)',ctx);
   assert.equal(red.name,'选手甲');assert.equal(red.title,'');
+  els.matchStartRedName={value:'旧红方'};
+  const currentRed=vm.runInContext('getParticipantPayload(1,{preferForm:false})',ctx);
+  assert.equal(currentRed.name,'选手甲');
   assert.doesNotMatch(html,/redLiveTitleInput|blueLiveTitleInput|裁判直播间标题/);
   assert.match(html,/for="refereeTitleInput">裁判<\/label>/);
   const nativeCalls=[];
@@ -66,6 +69,9 @@ test('public room module is embedded identically and keeps one main match contro
   assert.match(client, /offlineMode|isOffline|setOfflineMode/);
   assert.match(client, /deleteRoom|pauseMatch/);
   assert.match(client, /resumeMatch/);
+  assert.match(client, /action\('\/pause'/);
+  assert.match(client, /paused: '比赛已暂停'/);
+  assert.match(client, /id="roomMount">挂载比赛/);
   assert.doesNotMatch(client, /roomMini|roomPin|toggleMini/);
   assert.match(client, /开始计时|startOfflineTimer/);
   assert.match(client, /syncRosterFromServer|syncRosterToServer/);

@@ -1,5 +1,7 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 
+export const AUTO_END_IDLE_MS = 3 * 60 * 60 * 1000;
+
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
 const clone = value => structuredClone(value);
 const text = (value, max = 100) => {
@@ -32,8 +34,13 @@ export class NotificationQueue {
 }
 
 export class Rooms {
-  constructor({ send, normalize, formatStart, address, cleanError = String, devCode = '', now = Date.now, store = null }) {
-    Object.assign(this, { send, normalize, formatStart, address, cleanError, devCode, now, store });
+  constructor({
+    send, normalize, formatStart, address, cleanError = String, devCode = '',
+    now = Date.now, store = null, autoEndIdleMs = AUTO_END_IDLE_MS
+  }) {
+    Object.assign(this, {
+      send, normalize, formatStart, address, cleanError, devCode, now, store, autoEndIdleMs
+    });
     this.instance = randomUUID(); this.sessions = new Map(); this.rooms = new Map();
     this.roster = new Map();
     this.rates = new Map(); this.settings = { enabled: false, interval: 5 };
@@ -138,6 +145,26 @@ export class Rooms {
     return { red: v.red, blue: v.blue };
   }
   elapsed(r) { return r.elapsed + (r.state === 'playing' ? Math.max(0, Math.floor((this.now() - r.anchor) / 1000)) : 0); }
+  syncParticipants(r, body) {
+    if (body.left === undefined && body.right === undefined) return;
+    const match = this.normalize({
+      ...r.match,
+      left: body.left === undefined ? r.match.left : body.left,
+      right: body.right === undefined ? r.match.right : body.right
+    });
+    this.formatStart(match);
+    r.match.left = match.left;
+    r.match.right = match.right;
+  }
+  applySnapshot(r, body) {
+    const board = this.board(body.board);
+    const scores = this.scores(body.scores);
+    const scoresChanged = scores.red !== r.scores.red || scores.blue !== r.scores.blue;
+    this.syncParticipants(r, body);
+    r.board = board;
+    r.scores = scores;
+    if (scoresChanged) r.lastScoreChangeAt = this.now();
+  }
   view(r, s, detailed = true) {
     const { host, ...data } = r;
     const view = clone(data);
@@ -224,10 +251,12 @@ export class Rooms {
   }
   summary(r, ended = false) {
     const m = r.match, sec = this.elapsed(r);
+    const autoEnded = ended && r.records?.at(-1)?.action === 'auto-end-idle';
     return [
       ended ? '🏁 Bingo 比赛结束' : '🎮 正在进行的 Bingo 比赛',
       `裁判：${m.referee.title}`, `裁判直播间：${this.address(m.referee.platform, m.referee.room)}`,
       `红方 ${m.left.name}：${r.scores.red} 分`, `蓝方 ${m.right.name}：${r.scores.blue} 分`,
+      ...(autoEnded ? ['结束原因：比分连续 3 小时未变化，系统自动结束'] : []),
       `${ended ? '比赛用时' : '比赛已进行'}：${Math.floor(sec / 3600)}小时${Math.floor(sec / 60) % 60}分${sec % 60}秒`,
       `比分同步时间：${new Date(r.updatedAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })}（北京时间）`
     ].join('\n');
@@ -260,8 +289,17 @@ export class Rooms {
     for (const r of this.rooms.values()) {
       if (r.state === 'countdown' && r.countdownEnd <= this.now()) {
         r.state = 'playing'; r.anchor = r.countdownEnd; r.startedAt = r.anchor;
+        r.lastScoreChangeAt = this.now();
         r.match.started_at = new Date(r.startedAt).toISOString();
         this.changed(r); this.notify(r, 'start'); this.changedPersist();
+      }
+      if (r.state === 'playing' && this.now() - r.lastScoreChangeAt >= this.autoEndIdleMs) {
+        r.elapsed = this.elapsed(r);
+        r.state = 'ended'; r.anchor = 0; r.countdownEnd = 0;
+        r.records.push({ action: 'auto-end-idle', at: this.now() });
+        this.changed(r);
+        this.notify(r, 'end');
+        this.changedPersist();
       }
     }
     if (this.settings.enabled && !this.summaryPending && this.now() - this.lastSummary >= this.settings.interval * 60000) {
@@ -332,6 +370,7 @@ export class Rooms {
       const id = randomBytes(8).toString('hex');
       const r = { id, host: s.id, match, board, scores, state: 'waiting', rev: 1, elapsed: 0, anchor: 0,
         startedAt: 0, countdown: 0, countdownEnd: 0, createdAt: this.now(), updatedAt: this.now(),
+        lastScoreChangeAt: this.now(),
         members: [{ id: s.id, name: match.referee.title, seen: this.now() }], delivery: {}, records: [], remounts: {} };
       this.rooms.set(id, r);
       if (requestKey) {
@@ -356,6 +395,7 @@ export class Rooms {
       const copy = clone(ended);
       copy.id = randomBytes(8).toString('hex'); copy.state = 'mounted'; copy.rev = 1;
       copy.elapsed = 0; copy.anchor = 0; copy.startedAt = 0; copy.countdownEnd = 0;
+      copy.lastScoreChangeAt = this.now();
       copy.delivery = {}; copy.members = []; copy.remounts = {}; copy.records = [{ action: 'remount', at: this.now() }];
       copy.createdAt = copy.updatedAt = this.now();
       this.rooms.set(copy.id, copy);
@@ -390,24 +430,25 @@ export class Rooms {
       const referee = this.normalize({ ...r.match, referee: body.referee }).referee;
       this.address(referee.platform, referee.room);
       r.host = s.id; r.match.referee = referee; r.members = [{ id: s.id, name: referee.title, seen: this.now() }];
-      r.state = r.startedAt ? 'playing' : 'waiting'; r.anchor = this.now();
+      r.state = r.startedAt ? 'playing' : 'waiting';
+      r.anchor = r.state === 'playing' ? this.now() : 0;
+      if (r.state === 'playing') r.lastScoreChangeAt = this.now();
       r.records.push({ action: 'takeover', referee: referee.title, at: this.now() }); this.changed(r);
       return { room: this.view(r, s) };
     }
     if (path === '/resume') {
-      if (r.host !== s.id) throw fail('只有原裁判可以继续比赛；其他用户请先接管', 403);
-      if (r.state !== 'mounted') throw fail('当前比赛不是暂停状态', 409);
+      if (r.host !== s.id) throw fail('只有本场裁判可以继续比赛；挂载比赛的其他用户请先接管', 403);
+      if (r.state === 'playing') return { room: this.view(r, s) };
+      if (!['paused', 'mounted'].includes(r.state)) throw fail('当前比赛不是暂停或挂载状态', 409);
       this.revision(r, body);
-      this.oneHost(s);
-      const freshStart = !r.startedAt;
-      r.state = 'playing'; r.anchor = this.now(); r.countdownEnd = 0;
-      if (freshStart) {
-        r.startedAt = r.anchor;
-        r.match.started_at = new Date(r.startedAt).toISOString();
-      }
+      const fromMounted = r.state === 'mounted';
+      r.state = r.startedAt ? 'playing' : 'waiting';
+      r.anchor = r.state === 'playing' ? this.now() : 0;
+      r.countdownEnd = 0;
+      if (r.state === 'playing') r.lastScoreChangeAt = this.now();
       if (!r.members.some(m => m.id === s.id)) r.members.push({ id: s.id, name: r.match.referee.title, seen: this.now() });
+      r.records.push({ action: fromMounted ? 'restore-mount' : 'resume', referee: r.match.referee.title, at: this.now() });
       this.changed(r);
-      if (freshStart) this.notify(r, 'start');
       return { room: this.view(r, s) };
     }
     this.host(s, r);
@@ -435,9 +476,8 @@ export class Rooms {
     this.revision(r, body);
     switch (path) {
       case '/update':
-        if (!['waiting', 'playing'].includes(r.state)) throw fail('当前状态不能修改棋盘', 409);
-        { const board = this.board(body.board), scores = this.scores(body.scores);
-          r.board = board; r.scores = scores; }
+        if (!['waiting', 'playing', 'paused'].includes(r.state)) throw fail('当前状态不能修改棋盘', 409);
+        this.applySnapshot(r, body);
         break;
       case '/settings':
         if (!Number.isInteger(body.countdown) || body.countdown < 0 || body.countdown > 60) throw fail('倒计时须为 0–60 秒');
@@ -448,17 +488,25 @@ export class Rooms {
       case '/start':
         if (r.state !== 'waiting' && r.state !== 'countdown') throw fail('当前状态不能开始', 409);
         r.state = 'playing'; r.countdownEnd = 0; r.anchor = this.now(); r.startedAt = r.anchor;
+        r.lastScoreChangeAt = this.now();
         r.match.started_at = new Date(r.startedAt).toISOString();
         this.changed(r); this.notify(r, 'start'); return { room: this.view(r, s) };
+      case '/pause':
+        if (r.state === 'paused') return { room: this.view(r, s) };
+        if (r.state !== 'playing') throw fail('当前状态不能暂停', 409);
+        r.elapsed = this.elapsed(r); r.state = 'paused'; r.anchor = 0; r.countdownEnd = 0;
+        r.records.push({ action: 'pause', referee: r.match.referee.title, at: this.now() });
+        break;
       case '/mount':
-        if (!['waiting', 'playing', 'countdown'].includes(r.state)) throw fail('当前状态不能挂载', 409);
+        if (!['waiting', 'playing', 'paused', 'countdown'].includes(r.state)) throw fail('当前状态不能挂载', 409);
         r.elapsed = this.elapsed(r); r.state = 'mounted'; r.countdownEnd = 0;
+        r.anchor = 0;
         r.records.push({ action: 'mount', referee: r.match.referee.title, at: this.now() }); break;
       case '/end':
-        if (!['waiting', 'playing', 'countdown'].includes(r.state)) throw fail('请先接管挂载比赛', 409);
-        { const board = this.board(body.board), score = this.scores(body.scores);
-          r.board = board; r.scores = score; }
+        if (!['waiting', 'playing', 'paused', 'countdown'].includes(r.state)) throw fail('请先接管挂载比赛', 409);
+        this.applySnapshot(r, body);
         r.elapsed = this.elapsed(r); r.state = 'ended'; r.countdownEnd = 0;
+        r.anchor = 0;
         this.changed(r); this.notify(r, 'end'); return { room: this.view(r, s) };
       default: throw fail('接口不存在', 404);
     }

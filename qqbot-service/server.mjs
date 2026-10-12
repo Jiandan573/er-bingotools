@@ -20,6 +20,7 @@ const QQ_TOKEN_URL = String(process.env.QQ_TOKEN_URL || 'https://bots.qq.com/app
 const DATABASE_URL = String(
   process.env.DATABASE_URL || (process.env.RENDER === 'true' ? '' : process.env.SUPABASE_DATABASE_URL) || ''
 ).trim();
+const SERVICE_VERSION = '17.5.0';
 
 let pool = null;
 let databaseReady = false;
@@ -363,7 +364,7 @@ async function initDatabase() {
       await client.query('ALTER TABLE bingotools_match_events ADD COLUMN IF NOT EXISTS idempotency_key TEXT');
       await client.query('ALTER TABLE bingotools_match_events ADD COLUMN IF NOT EXISTS payload_hash TEXT');
       await client.query('CREATE UNIQUE INDEX IF NOT EXISTS bingotools_match_events_idempotency_key_idx ON bingotools_match_events (idempotency_key) WHERE idempotency_key IS NOT NULL');
-      await client.query("INSERT INTO bingotools_schema_migrations (version) VALUES ('v2-persistence-1') ON CONFLICT DO NOTHING");
+      await client.query("INSERT INTO bingotools_schema_migrations (version) VALUES ('v2-persistence-1'), ('v2-pause-idle-1') ON CONFLICT DO NOTHING");
       await client.query('COMMIT');
     } catch (error) {
       await client.query('ROLLBACK');
@@ -400,7 +401,7 @@ async function handleRequest(req, res) {
   if (req.method === 'GET' && path === '/') {
     // Render 仅提供 API。HTML 保留在本地，未来由 exe 调用同一接口。
     jsonResponse(res, 200, {
-      ok: true, service: 'bingotools-qqbot-service', version: '17.4.1', mode: 'api-only', health: '/health'
+      ok: true, service: 'bingotools-qqbot-service', version: SERVICE_VERSION, mode: 'api-only', health: '/health'
     });
     return;
   }
@@ -409,7 +410,7 @@ async function handleRequest(req, res) {
     jsonResponse(res, 200, {
       ok: true,
       service: 'bingotools-qqbot-service',
-      version: '17.4.1',
+      version: SERVICE_VERSION,
       instance: rooms.instance,
       qq: qqEvents.status().state,
       database: databaseStatus()

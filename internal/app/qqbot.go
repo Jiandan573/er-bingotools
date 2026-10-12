@@ -34,7 +34,7 @@ func callRoomService(parent context.Context, serviceURL, token, endpoint, body s
 		"/api/v2/create": true, "/api/v2/get": true, "/api/v2/join": true,
 		"/api/v2/leave": true, "/api/v2/heartbeat": true, "/api/v2/update": true,
 		"/api/v2/settings": true, "/api/v2/kick": true, "/api/v2/start": true,
-		"/api/v2/end": true, "/api/v2/mount": true, "/api/v2/takeover": true,
+		"/api/v2/end": true, "/api/v2/pause": true, "/api/v2/mount": true, "/api/v2/takeover": true,
 		"/api/v2/remount": true, "/api/v2/resume": true, "/api/v2/retry": true, "/api/v2/delete": true,
 		"/api/v2/roster": true, "/api/v2/roster/push": true,
 		"/api/v2/roster/admin/update": true, "/api/v2/roster/admin/delete": true,

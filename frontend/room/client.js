@@ -10,7 +10,10 @@
   let room = null, listing = [], offset = 0, connected = false, busy = false, connecting = null;
   let dirty = false, generation = 0, updateTimer, pollBusy = false, lastBeat = 0, developer = false, createOnly = false;
   let previousRoom = '', localPaused = false;
-  const states = { waiting: '等待开始', countdown: '准备倒计时', playing: '比赛进行中', mounted: '已挂载（暂停）', ended: '比赛已结束' };
+  const states = {
+    waiting: '等待开始', countdown: '准备倒计时', playing: '比赛进行中',
+    paused: '比赛已暂停', mounted: '已挂载', ended: '比赛已结束'
+  };
   const store = () => localStorage.setItem(KEY, JSON.stringify(saved));
   const isOffline = () => !!saved.offlineMode;
   function localProxyBase() {
@@ -20,7 +23,7 @@
   }
   const service = () => localProxyBase() || getQQBotConfig().serviceUrl;
   const now = () => Date.now() + offset;
-  const canEdit = () => !room || (room.canControl && connected && ['waiting', 'playing'].includes(room.state));
+  const canEdit = () => !room || (room.canControl && connected && ['waiting', 'playing', 'paused'].includes(room.state));
   function revealConnPanel() {
     if (typeof settings !== 'undefined' && !settings.showMemoConn) {
       settings.showMemoConn = 1;
@@ -251,7 +254,7 @@
     const changed = !room || room.id !== next.id;
     const lostControl = room?.canControl && !next.canControl;
     room = next; saved.room = next.id; store();
-    if (force || changed || !next.canControl || lostControl) { dirty = false; applyBoard(next.board); }
+      if (force || changed || !next.canControl || lostControl) { dirty = false; applyBoard(next.board); }
     chrome();
   }
   function applyTimerButtonLabels() {
@@ -260,7 +263,7 @@
     if (begin) begin.textContent = offlineTimer ? '开始计时' : '开始比赛';
     if (pause) pause.textContent = offlineTimer
       ? (stopwatchRunning ? '暂停比赛' : (localPaused ? '继续比赛' : '暂停比赛'))
-      : (room?.state === 'mounted' ? '继续比赛' : (!room && localPaused ? '继续比赛' : '暂停比赛'));
+      : (room?.state === 'paused' ? '继续比赛' : (!room && localPaused ? '继续比赛' : '暂停比赛'));
     if (end) end.textContent = offlineTimer ? '重置' : '比赛结束';
   }
   function chrome() {
@@ -268,8 +271,9 @@
     applyTimerButtonLabels();
     const offlineTimer = isOffline() && !room;
     const localRunning = !room && typeof activeMatch !== 'undefined' && activeMatch && !activeMatch.endedAt;
-    const canPauseRoom = !!room?.canControl && ['waiting', 'playing', 'countdown'].includes(room?.state);
-    const canResumeRoom = !!room?.isHost && room?.state === 'mounted';
+    const canPauseRoom = !!room?.isHost && room?.state === 'playing';
+    const canResumeRoom = !!room?.isHost && room?.state === 'paused';
+    const canMountRoom = !!room?.canControl && ['waiting', 'playing', 'paused', 'countdown'].includes(room?.state);
     if (offlineTimer) {
       $('beginMatchBtn').disabled = busy || !!stopwatchRunning || localPaused;
       if ($('pauseMatchBtn')) $('pauseMatchBtn').disabled = busy || (!stopwatchRunning && !localPaused && !(stopwatchSeconds > 0));
@@ -300,7 +304,7 @@
     } else if (isOffline()) {
       status('单机模式：不连接服务器');
     }
-    if ($('roomMount')) $('roomMount').disabled = !canPauseRoom;
+    if ($('roomMount')) $('roomMount').disabled = !canMountRoom;
     if ($('roomLeave')) $('roomLeave').disabled = !room;
     if ($('roomDelete')) {
       const canDelete = !!room && (room.isHost || (developer && ['mounted', 'ended'].includes(room.state)));
@@ -341,12 +345,20 @@
     dirty = true; generation++;
     clearTimeout(updateTimer); updateTimer = setTimeout(() => flush().catch(e => status(e.message)), 400);
   }
+  function currentParticipants() {
+    const participant = typeof getCurrentParticipantPayload === 'function'
+      ? getCurrentParticipantPayload
+      : side => getParticipantPayload(side, { preferForm: false });
+    return { left: participant(1), right: participant(2) };
+  }
   let flushing;
   async function flush() {
     if (flushing) { await flushing; if (dirty) return flush(); return; }
-    if (!dirty || !room?.canControl || !connected || !['waiting', 'playing'].includes(room.state)) return;
+    if (!dirty || !room?.canControl || !connected || !['waiting', 'playing', 'paused'].includes(room.state)) return;
     const id = room.id, rev = room.rev, gen = generation;
-    flushing = api('/update', { id, revision: rev, board: collectBoard(), scores: currentMatchScores() }).then(data => {
+    flushing = api('/update', {
+      id, revision: rev, board: collectBoard(), scores: currentMatchScores(), ...currentParticipants()
+    }).then(data => {
       if (room?.id !== id) return;
       dirty = generation !== gen; accept(data.room);
     }).catch(async e => {
@@ -469,7 +481,9 @@
       return;
     }
     if (!room.canControl || !confirm(`确认结束？红方 ${currentMatchScores().red}，蓝方 ${currentMatchScores().blue} 分。`)) return;
-    await run(() => action('/end', { board: collectBoard(), scores: currentMatchScores() }));
+    await run(() => action('/end', {
+      board: collectBoard(), scores: currentMatchScores(), ...currentParticipants()
+    }));
   }
   async function pauseMatch() {
     if (isOffline() && !room) {
@@ -477,12 +491,12 @@
       else if (localPaused) startOfflineTimer();
       return;
     }
-    if (room?.isHost && room.state === 'mounted') {
+    if (room?.isHost && room.state === 'paused') {
       await resumeMatch();
       return;
     }
-    if (room?.canControl && ['waiting', 'playing', 'countdown'].includes(room.state)) {
-      await run(async () => { await action('/mount'); showToast('比赛已暂停并保存'); });
+    if (room?.isHost && room.state === 'playing') {
+      await run(async () => { await action('/pause'); showToast('比赛计时已暂停'); });
       return;
     }
     if (!room && typeof activeMatch !== 'undefined' && activeMatch && !activeMatch.endedAt) {
@@ -495,8 +509,8 @@
     showToast('当前没有可暂停的比赛');
   }
   async function resumeMatch() {
-    if (!room?.isHost || room.state !== 'mounted') {
-      showToast('只有原裁判或接管后的裁判可以继续比赛');
+    if (!room?.isHost || room.state !== 'paused') {
+      showToast('只有本场裁判可以继续已暂停的比赛');
       return;
     }
     await run(async () => { await action('/resume'); showToast('比赛已继续'); });
@@ -504,7 +518,7 @@
   async function refreshList() {
     const data = await api('/list');
     listing = data.rooms; developer = data.developer;
-    $('roomCards').innerHTML = ['waiting', 'countdown', 'playing', 'mounted', 'ended'].map(state => {
+    $('roomCards').innerHTML = ['waiting', 'countdown', 'playing', 'paused', 'mounted', 'ended'].map(state => {
       const rows = listing.filter(r => r.state === state).sort((a, b) => b.updatedAt - a.updatedAt);
       return `<section class="room-section"><h3 class="room-section-title">${states[state]}（${rows.length}）</h3>`
         + (rows.length ? rows.map(r => `<article class="room-card">
@@ -513,7 +527,8 @@
         <div class="room-card-actions">
           <button type="button" class="modal-btn" data-room="${r.id}" data-op="detail">详情</button>
           ${!['mounted', 'ended'].includes(state) ? `<button type="button" class="modal-btn btn-confirm" data-room="${r.id}" data-op="join">加入</button>` : ''}
-          ${state === 'mounted' && r.isHost ? `<button type="button" class="modal-btn btn-theme-blue" data-room="${r.id}" data-op="resume">继续比赛</button>` : ''}
+          ${state === 'paused' && r.isHost ? `<button type="button" class="modal-btn btn-theme-blue" data-room="${r.id}" data-op="resume">继续比赛</button>` : ''}
+          ${state === 'mounted' && r.isHost ? `<button type="button" class="modal-btn btn-theme-blue" data-room="${r.id}" data-op="restore">恢复挂载</button>` : ''}
           ${state === 'mounted' && !r.isHost ? `<button type="button" class="modal-btn btn-theme-blue" data-room="${r.id}" data-op="takeover">接管</button>` : ''}
           ${state === 'ended' && r.canControl ? `<button type="button" class="modal-btn" data-room="${r.id}" data-op="remount">重新挂载</button>` : ''}
           ${(state === 'mounted' || state === 'ended') && (developer || r.isHost) ? `<button type="button" class="modal-btn btn-cancel" data-room="${r.id}" data-op="delete">${state === 'ended' ? '删除记录' : '删除挂载'}</button>` : ''}
@@ -615,6 +630,10 @@
         const result = await api('/resume', { id: r.id, revision: r.rev });
         accept(result.room, true); $('roomModal').classList.add('modal-hide');
       }
+      else if (b.dataset.op === 'restore') {
+        const result = await api('/resume', { id: r.id, revision: r.rev });
+        accept(result.room, true); $('roomModal').classList.add('modal-hide');
+      }
       else if (b.dataset.op === 'takeover') {
         const previous = loadRefereeInfo();
         const title = prompt('接管裁判名字', previous.title || ''); if (!title?.trim()) return;
@@ -707,7 +726,7 @@
           <div class="set-ui-card">
             <div class="set-ui-card-label">当前房间</div>
             <div class="room-current-actions" style="margin-top:8px">
-              <button type="button" class="modal-btn" id="roomMount">暂停并保存</button>
+              <button type="button" class="modal-btn" id="roomMount">挂载比赛</button>
               <button type="button" class="modal-btn btn-cancel" id="roomDelete">删除当前房间</button>
               <button type="button" class="modal-btn btn-cancel" id="roomLeave">离开当前房间</button>
             </div>
@@ -742,7 +761,12 @@
     if ($('roomCards')) $('roomCards').onclick = card;
     if ($('roomRosterAdminList')) $('roomRosterAdminList').onclick = adminRosterAction;
     on('roomRosterAdminRefresh', () => run(refreshRosterAdmin));
-    on('roomMount', () => run(() => action('/mount')));
+    on('roomMount', () => run(async () => {
+      if (!room) return;
+      if (!confirm('确认挂载比赛？挂载会停止计时，并允许其他裁判接管；普通暂停请使用计时区的“暂停比赛”。')) return;
+      await action('/mount');
+      showToast('比赛已挂载，可由其他裁判接管');
+    }));
     on('roomDelete', () => run(async () => {
       if (!room) return;
       if (!(room.isHost || (developer && ['mounted', 'ended'].includes(room.state)))) {
@@ -839,7 +863,7 @@
   });
   window.BingoRooms = {
     connect, openList, collectBoard, applyBoard, getRoom: () => room, isConnected: () => connected, serviceUrl: service,
-    isDeveloper: () => developer, isOffline, setOfflineMode, pauseMatch,
+    isDeveloper: () => developer, isOffline, setOfflineMode, pauseMatch, syncCurrentState: schedule,
     syncRosterFromServer, syncRosterToServer, refreshRosterAdmin,
     setHint: (message, isErr) => {
       if (isErr) paintConn('is-err', connected ? '已连接' : '未连接', message || '', true);
