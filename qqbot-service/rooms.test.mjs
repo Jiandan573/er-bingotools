@@ -112,7 +112,31 @@ test('start notify, atomic takeover, frozen time, end dedupe and history reset',
   assert.equal(t.call('/list', {}, t.guest).rooms.some(x => x.id === fresh.id && x.state === 'mounted'), true);
   assert.equal(t.call('/remount', { id: r.id, request_id: 'remount-1' }, t.guest).room.id, fresh.id);
 });
-test('original referee resumes mounted match without a duplicate start notification', async () => {
+test('ordinary referee pauses and resumes while paused matches stay out of QQ queries', async () => {
+  const t = setup(); let r = t.create();
+  r = t.call('/start', { id: r.id, revision: r.rev }).room;
+  await microtasks(); assert.equal(t.sent.length, 1);
+  t.advance(9000);
+  r = t.call('/pause', { id: r.id, revision: r.rev }).room;
+  assert.equal(r.state, 'paused'); assert.equal(r.elapsed_seconds, 9);
+  assert.equal(t.rooms.current(), '');
+  assert.throws(() => t.call('/resume', { id: r.id, revision: r.rev }, t.guest), /裁判/);
+  const pausedBoard = board();
+  pausedBoard.redName = '暂停时红方';
+  r = t.call('/update', {
+    id: r.id, revision: r.rev, board: pausedBoard, scores: { red: 3, blue: 2 },
+    left: { ...match.left, name: '暂停时红方' }, right: match.right
+  }).room;
+  assert.equal(r.scores.red, 3);
+  t.advance(3 * 3600000 + 1000);
+  r = t.call('/get', { id: r.id }).room;
+  assert.equal(r.state, 'paused');
+  assert.equal(r.elapsed_seconds, 9);
+  r = t.call('/resume', { id: r.id, revision: r.rev }).room;
+  assert.equal(r.state, 'playing');
+  await microtasks(); assert.equal(t.sent.length, 1);
+});
+test('original referee restores a mounted match without a duplicate start notification', async () => {
   const t = setup(); let r = t.create();
   r = t.call('/start', { id: r.id, revision: r.rev }).room;
   await microtasks(); assert.equal(t.sent.length, 1);
@@ -123,6 +147,45 @@ test('original referee resumes mounted match without a duplicate start notificat
   assert.equal(r.state, 'playing');
   await microtasks(); assert.equal(t.sent.length, 1);
   assert.throws(() => t.call('/resume', { id: r.id, revision: r.rev }, t.guest), /裁判/);
+});
+test('three hours without a score change automatically ends a playing match', async () => {
+  const t = setup(); let r = t.create();
+  r = t.call('/start', { id: r.id, revision: r.rev }).room;
+  await microtasks(); assert.equal(t.sent.length, 1);
+  t.advance(3 * 3600000 - 1);
+  assert.equal(t.call('/get', { id: r.id }).room.state, 'playing');
+  t.advance(1);
+  r = t.call('/get', { id: r.id }).room;
+  assert.equal(r.state, 'ended');
+  assert.equal(r.elapsed_seconds, 3 * 3600);
+  await microtasks();
+  assert.equal(t.sent.length, 2);
+  assert.match(t.sent[1], /比分连续 3 小时未变化/);
+  assert.equal(t.rooms.current(), '');
+});
+test('score snapshots update current side names atomically before query and end broadcasts', async () => {
+  const t = setup(); let r = t.create();
+  r = t.call('/start', { id: r.id, revision: r.rev }).room;
+  await microtasks();
+  const swapped = board();
+  swapped.redName = '蓝乙';
+  swapped.blueName = '红甲';
+  r = t.call('/update', {
+    id: r.id, revision: r.rev, board: swapped, scores: { red: 7, blue: 25 },
+    left: match.right, right: match.left
+  }).room;
+  assert.equal(r.match.left.name, '蓝乙');
+  assert.equal(r.match.right.name, '红甲');
+  assert.match(t.rooms.current(), /红方 蓝乙：7 分/);
+  assert.match(t.rooms.current(), /蓝方 红甲：25 分/);
+  r = t.call('/end', {
+    id: r.id, revision: r.rev, board: swapped, scores: { red: 8, blue: 26 },
+    left: match.right, right: match.left
+  }).room;
+  await microtasks();
+  assert.equal(r.state, 'ended');
+  assert.match(t.sent.at(-1), /红方 蓝乙：8 分/);
+  assert.match(t.sent.at(-1), /蓝方 红甲：26 分/);
 });
 test('notification failure preserves game; uncertain delivery is not retried', async () => {
   const t = setup(async () => { throw Object.assign(new Error('timeout'), { uncertain: true }); });

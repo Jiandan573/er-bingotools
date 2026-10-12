@@ -39,6 +39,9 @@ export class RoomStore {
         anchor: Number(row.running_since_ms || 0), startedAt: Number(row.started_at_ms || 0),
         countdown: Number(row.countdown_seconds || 0), countdownEnd: Number(row.countdown_end_ms || 0),
         createdAt: Number(row.created_at_ms), updatedAt: Number(row.updated_at_ms),
+        // Older deployments do not have this column populated. Initialize
+        // those rooms from load time so a migration cannot end them at once.
+        lastScoreChangeAt: Number(row.last_score_change_at_ms || Date.now()),
         members: memberMap.get(row.id) || [], delivery: deliveryMap.get(row.id) || {},
         records: row.records || [], remounts: row.remounts || {}
       };
@@ -95,11 +98,13 @@ export class RoomStore {
       for (const room of snapshot.rooms.values()) {
         await client.query(`INSERT INTO bingotools_rooms
           (id, host_session_id, state, revision, match, board, scores, elapsed_seconds, running_since_ms,
-           started_at_ms, countdown_seconds, countdown_end_ms, created_at_ms, updated_at_ms, records, remounts)
-          VALUES ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7::jsonb,$8,$9,$10,$11,$12,$13,$14,$15::jsonb,$16::jsonb)`, [
+           started_at_ms, countdown_seconds, countdown_end_ms, created_at_ms, updated_at_ms,
+           last_score_change_at_ms, records, remounts)
+          VALUES ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7::jsonb,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,$17::jsonb)`, [
           room.id, room.host, room.state, room.rev, JSON.stringify(room.match), JSON.stringify(room.board), JSON.stringify(room.scores),
           room.elapsed, room.anchor || null, room.startedAt || null, room.countdown, room.countdownEnd || null,
-          room.createdAt, room.updatedAt, JSON.stringify(room.records || []), JSON.stringify(room.remounts || {})
+          room.createdAt, room.updatedAt, room.lastScoreChangeAt || room.updatedAt,
+          JSON.stringify(room.records || []), JSON.stringify(room.remounts || {})
         ]);
         for (const member of room.members || []) await client.query(
           'INSERT INTO bingotools_room_members (room_id, member_id, name, seen_at_ms) VALUES ($1,$2,$3,$4)',

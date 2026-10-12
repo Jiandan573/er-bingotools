@@ -49,9 +49,11 @@ CREATE TABLE IF NOT EXISTS bingotools_rooms (
   countdown_end_ms BIGINT,
   created_at_ms BIGINT NOT NULL,
   updated_at_ms BIGINT NOT NULL,
+  last_score_change_at_ms BIGINT,
   records JSONB NOT NULL DEFAULT '[]'::jsonb,
   remounts JSONB NOT NULL DEFAULT '{}'::jsonb
 );
+ALTER TABLE bingotools_rooms ADD COLUMN IF NOT EXISTS last_score_change_at_ms BIGINT;
 CREATE INDEX IF NOT EXISTS bingotools_rooms_state_updated_idx ON bingotools_rooms (state, updated_at_ms);
 CREATE TABLE IF NOT EXISTS bingotools_room_members (
   room_id TEXT NOT NULL REFERENCES bingotools_rooms(id) ON DELETE CASCADE,
