@@ -58,8 +58,12 @@ jobs:
             exit 1
           fi
           if [[ -f scripts/v17.5.1.patch.gz ]]; then
-            gzip -dc scripts/v17.5.1.patch.gz | git apply --whitespace=nowarn
+            gzip -dc scripts/v17.5.1.patch.gz | git apply --whitespace=nowarn --exclude=qqbot-service/server.mjs
             rm scripts/v17.5.1.patch.gz
+          fi
+          if [[ -f scripts/v17.5.1-server.patch ]]; then
+            git apply --whitespace=nowarn scripts/v17.5.1-server.patch
+            rm scripts/v17.5.1-server.patch
           fi
           node scripts/embed-rooms.mjs
           node scripts/make-standalone.mjs
