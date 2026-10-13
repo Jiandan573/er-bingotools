@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Release tag (for example v17.5.0)
+        description: Release tag (for example v17.5.1)
         required: true
-        default: v17.5.0
+        default: v17.5.1
   push:
     branches: [master]
     paths:
@@ -35,7 +35,7 @@ jobs:
       run:
         shell: bash
     env:
-      RELEASE_VERSION: ${{ inputs.version || 'v17.5.0' }}
+      RELEASE_VERSION: ${{ inputs.version || 'v17.5.1' }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - name: Preserve source line endings
@@ -56,6 +56,10 @@ jobs:
           if git rev-parse "$RELEASE_VERSION" >/dev/null 2>&1; then
             echo "Tag already exists; use a new version." >&2
             exit 1
+          fi
+          if [[ -f scripts/v17.5.1.patch.gz ]]; then
+            gzip -dc scripts/v17.5.1.patch.gz | git apply --whitespace=nowarn
+            rm scripts/v17.5.1.patch.gz
           fi
           node scripts/embed-rooms.mjs
           node scripts/make-standalone.mjs
@@ -88,7 +92,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add .gitignore render.yaml README.md bingotools.html frontend/dist/index.html frontend/dist/bingomaker.html index/bingotools-V17.html index/bingotools-V18.html scripts frontend/room internal/app/qqbot.go internal/app/qqbot_test.go docs qqbot-service
           if ! git diff --cached --quiet; then
-            git commit -m "feat: persist rooms and pause state with Render Postgres [skip ci]"
+            git commit -m "chore: commit v17.5.1 release sources [skip ci]"
             git push origin HEAD:master
           fi
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
