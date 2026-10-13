@@ -36,14 +36,18 @@ async function page(){const context=await browser.newContext({viewport:{width:16
  await host.locator('#roomListBtn').click();await host.locator('#roomMount').click();await host.waitForFunction(()=>window.BingoRooms.getRoom()?.state==='mounted');await host.locator('#roomClose').click();
  await guest.locator('#roomListBtn').click();await guest.locator('#roomRefresh').click();await guest.locator('[data-op="takeover"][data-room="'+id+'"]').click();
  await guest.waitForFunction(()=>window.BingoRooms.getRoom()?.isHost===true);
- await guest.locator('#endMatchBtn').click();await guest.waitForFunction(()=>window.BingoRooms.getRoom()?.state==='ended');
- assert.equal(await guest.evaluate(()=>BingoRooms.getRoom().scores.red),7);
- await guest.locator('#roomListBtn').click();await guest.locator('[data-op="remount"][data-room="'+id+'"]').click();await guest.waitForTimeout(800);
- assert.ok(await guest.locator('[data-op="restore"]').count());
- await guest.locator('[data-op="restore"]').click();
- await guest.waitForFunction(()=>window.BingoRooms.getRoom()?.state==='waiting');
+ await guest.locator('#endMatchBtn').click();
+ await guest.waitForFunction(()=>window.BingoRooms.getRoom()===null);
+ assert.equal(await guest.evaluate(()=>stopwatchSeconds),0);
+ await guest.locator('#roomListBtn').click();await guest.locator('#roomRefresh').click();
+ assert.equal(await guest.locator('[data-room="'+id+'"]').count(),0);
+ await guest.locator('#roomClose').click();
  await guest.locator('#beginMatchBtn').click();
+ await guest.locator('#refereeRoomInput').fill('456');
+ await guest.locator('#refereeTitleInput').fill('下一场裁判');
+ await guest.locator('#saveAndStartMatchBtn').click();
  await guest.waitForFunction(()=>window.BingoRooms.getRoom()?.state==='playing');
+ assert.notEqual(await guest.evaluate(()=>window.BingoRooms.getRoom().id),id);
  if (await guest.locator('#roomClose').isVisible()) await guest.locator('#roomClose').click();await guest.evaluate(()=>showSetModal());await guest.locator('#setModal [data-set-tab="room"]').click();
  await guest.locator('#roomDevCode').fill('test-dev');await guest.locator('#roomDevLogin').click();await guest.locator('#roomDevControls').waitFor({state:'visible'});
  const row=guest.locator('.room-roster-admin-row').filter({has:guest.locator('input[value="公开上传选手"]')});
@@ -62,7 +66,7 @@ async function page(){const context=await browser.newContext({viewport:{width:16
  await offline.locator('#pauseMatchBtn').click();
  assert.equal(await offline.evaluate(()=>stopwatchRunning),true);
  assert.equal(await offline.locator('#pauseMatchBtn').textContent(),'暂停比赛');
- console.log('PASS: two clients, scoring, readonly, pause/resume, mount, takeover, end, history, developer settings, no room mini');
+ console.log('PASS: two clients, scoring, readonly, pause/resume, mount, takeover, complete-and-cleanup, next match, developer settings, no room mini');
 
  assert.deepEqual(errors,[]);
  }finally{await browser.close();await new Promise(r=>server.close(r));}

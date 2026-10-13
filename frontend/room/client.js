@@ -65,6 +65,34 @@
       throw e;
     }
   }
+  function clearCurrentRoom(resetTimer = true) {
+    previousRoom = saved.room || room?.id || previousRoom;
+    room = null;
+    saved.room = '';
+    dirty = false;
+    generation++;
+    clearTimeout(updateTimer);
+    localPaused = false;
+    store();
+    if (resetTimer && typeof resetStopwatch === 'function') resetStopwatch();
+    else if (typeof pauseStopwatch === 'function') pauseStopwatch();
+    chrome();
+  }
+  function deleteRoomLabel(current) {
+    if (!current) return '删除比赛';
+    if (['waiting', 'countdown'].includes(current.state)) return '取消并删除比赛';
+    if (['playing', 'paused'].includes(current.state)) return '放弃并删除比赛';
+    if (current.state === 'mounted') return '删除挂载比赛';
+    if (current.state === 'ended') return '删除结束记录';
+    return '删除比赛';
+  }
+  function deleteRoomPrompt(current) {
+    if (['waiting', 'countdown'].includes(current.state)) return '确认取消这场比赛并删除房间？删除后无法恢复。';
+    if (['playing', 'paused'].includes(current.state)) return '确认放弃并删除比赛？此操作不会发送结束播报，房间和当前进度将无法恢复。';
+    if (current.state === 'mounted') return '确认删除已挂载比赛？删除后无法恢复。';
+    if (current.state === 'ended') return '确认删除这条结束记录？删除后无法恢复。';
+    return '确认删除这场比赛？删除后无法恢复。';
+  }
   function localRoster() {
     if (window.BingoRoster?.getLocal) return window.BingoRoster.getLocal();
     return [];
@@ -305,10 +333,17 @@
       status('单机模式：不连接服务器');
     }
     if ($('roomMount')) $('roomMount').disabled = !canMountRoom;
-    if ($('roomLeave')) $('roomLeave').disabled = !room;
+    if ($('roomLeave')) {
+      const canLeave = !!room && !room.isHost;
+      $('roomLeave').hidden = !canLeave;
+      $('roomLeave').disabled = !canLeave;
+      $('roomLeave').textContent = '退出观看';
+    }
     if ($('roomDelete')) {
       const canDelete = !!room && (room.isHost || (developer && ['mounted', 'ended'].includes(room.state)));
+      $('roomDelete').hidden = !canDelete;
       $('roomDelete').disabled = !canDelete;
+      $('roomDelete').textContent = deleteRoomLabel(room);
     }
     if ($('roomListBtn')) $('roomListBtn').disabled = isOffline();
     if ($('memoConnReconnect')) $('memoConnReconnect').disabled = isOffline() || busy || !!connecting;
@@ -480,10 +515,35 @@
       chrome();
       return;
     }
-    if (!room.canControl || !confirm(`确认结束？红方 ${currentMatchScores().red}，蓝方 ${currentMatchScores().blue} 分。`)) return;
-    await run(() => action('/end', {
-      board: collectBoard(), scores: currentMatchScores(), ...currentParticipants()
-    }));
+    if (!room.canControl) return;
+    const scores = currentMatchScores();
+    const redName = room.match?.left?.name || '红方';
+    const blueName = room.match?.right?.name || '蓝方';
+    if (!confirm(`确认结束比赛并播报最终比分？\n红方 ${redName}：${scores.red} 分\n蓝方 ${blueName}：${scores.blue} 分\n\n播报成功后将自动退出并删除当前房间。`)) return;
+    await run(async () => {
+      const id = room.id;
+      try {
+        await action('/complete', {
+          board: collectBoard(), scores, ...currentParticipants()
+        });
+      } catch (error) {
+        try {
+          accept((await api('/get', { id })).room, true);
+        } catch (refreshError) {
+          if (refreshError.status === 404) {
+            clearCurrentRoom();
+            status('比赛已结束，当前房间已自动清理');
+            showToast('比赛已结束并播报，当前房间已自动清理');
+            return;
+          }
+        }
+        throw error;
+      }
+      clearCurrentRoom();
+      status('比赛已结束并播报，当前房间已自动清理');
+      showToast('比赛已结束并播报，当前房间已自动清理');
+      if ($('roomModal') && !$('roomModal').classList.contains('modal-hide')) await refreshList();
+    });
   }
   async function pauseMatch() {
     if (isOffline() && !room) {
@@ -727,8 +787,8 @@
             <div class="set-ui-card-label">当前房间</div>
             <div class="room-current-actions" style="margin-top:8px">
               <button type="button" class="modal-btn" id="roomMount">挂载比赛</button>
-              <button type="button" class="modal-btn btn-cancel" id="roomDelete">删除当前房间</button>
-              <button type="button" class="modal-btn btn-cancel" id="roomLeave">离开当前房间</button>
+              <button type="button" class="modal-btn btn-cancel" id="roomDelete" hidden>删除比赛</button>
+              <button type="button" class="modal-btn btn-cancel" id="roomLeave" hidden>退出观看</button>
             </div>
             <div id="roomMembers" style="margin-top:10px"></div>
             <div class="room-current-actions" style="margin-top:10px">
@@ -770,14 +830,13 @@
     on('roomDelete', () => run(async () => {
       if (!room) return;
       if (!(room.isHost || (developer && ['mounted', 'ended'].includes(room.state)))) {
-        throw new Error('只有裁判可以删除当前房间，或管理员删除挂载/已结束房间');
+        throw new Error('只有裁判可以删除自己的比赛，或管理员删除挂载/已结束记录');
       }
-      const label = states[room.state] || room.state;
-      if (!confirm(`确认删除当前房间（${label}）？删除后无法恢复。`)) return;
+      if (!confirm(deleteRoomPrompt(room))) return;
       const id = room.id;
       await deleteRoom(id);
-      room = null; saved.room = ''; dirty = false; store(); pauseStopwatch(); chrome();
-      showToast('房间已删除');
+      clearCurrentRoom();
+      showToast('比赛房间已删除');
       if ($('roomModal') && !$('roomModal').classList.contains('modal-hide')) await refreshList();
     }));
     on('memoConnReconnect', () => run(async () => {
@@ -788,11 +847,22 @@
     }));
     on('pauseMatchBtn', () => { pauseMatch(); });
     on('roomLeave', () => run(async () => {
-      await action('/leave'); previousRoom = saved.room; room = null; saved.room = ''; dirty = false; store(); pauseStopwatch(); chrome(); await refreshList();
+      if (!room || room.isHost) return;
+      await action('/leave');
+      clearCurrentRoom();
+      showToast('已退出观看');
+      await refreshList();
     }));
     if ($('roomMembers')) $('roomMembers').onclick = e => { const id = e.target.dataset.member; if (id) run(() => action('/kick', { member: id })); };
     on('roomRetryStart', () => run(() => action('/retry', { kind: 'start' })));
-    on('roomRetryEnd', () => run(() => action('/retry', { kind: 'end' })));
+    on('roomRetryEnd', () => run(async () => {
+      if (!room || room.delivery?.end?.status !== 'failed') throw new Error('只有明确失败的结束播报可以重试');
+      await action('/complete');
+      clearCurrentRoom();
+      status('结束播报已补发，当前房间已自动清理');
+      showToast('结束播报已补发，当前房间已自动清理');
+      if ($('roomModal') && !$('roomModal').classList.contains('modal-hide')) await refreshList();
+    }));
     on('roomDevLogin', () => run(async () => {
       if (isOffline()) throw new Error('请先关闭单机模式再验证管理员');
       if (!connected) await connect();

@@ -70,8 +70,12 @@ test('public room module is embedded identically and keeps one main match contro
   assert.match(client, /deleteRoom|pauseMatch/);
   assert.match(client, /resumeMatch/);
   assert.match(client, /action\('\/pause'/);
+  assert.match(client, /action\('\/complete'/);
   assert.match(client, /paused: '比赛已暂停'/);
   assert.match(client, /id="roomMount">挂载比赛/);
+  assert.match(client, /退出观看/);
+  assert.doesNotMatch(client, /id="roomDelete"[^>]*>删除当前房间/);
+  assert.doesNotMatch(client, /id="roomLeave"[^>]*>离开当前房间/);
   assert.doesNotMatch(client, /roomMini|roomPin|toggleMini/);
   assert.match(client, /开始计时|startOfflineTimer/);
   assert.match(client, /syncRosterFromServer|syncRosterToServer/);

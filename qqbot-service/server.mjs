@@ -20,7 +20,7 @@ const QQ_TOKEN_URL = String(process.env.QQ_TOKEN_URL || 'https://bots.qq.com/app
 const DATABASE_URL = String(
   process.env.DATABASE_URL || (process.env.RENDER === 'true' ? '' : process.env.SUPABASE_DATABASE_URL) || ''
 ).trim();
-const SERVICE_VERSION = '17.5.0';
+const SERVICE_VERSION = '17.5.1';
 
 let pool = null;
 let databaseReady = false;
@@ -432,11 +432,15 @@ async function handleRequest(req, res) {
       if (req.method !== 'POST') throw fail('请使用 POST', 405);
       if ((process.env.REQUIRE_ROOM_DATABASE === 'true' || DATABASE_URL) && !databaseReady) throw fail('数据库尚未就绪，房间数据暂不可用，请稍后重试', 503);
       const token = String(req.headers.authorization || '').replace(/^Bearer /, '');
-      // Render terminates traffic at Render's proxy. Use the rightmost hop, never a
+      // Render terminates traffic at its proxy. Use the rightmost hop, never a
       // client-supplied leftmost address, for rate limiting.
       const forwarded = process.env.RENDER === 'true' ? String(req.headers['x-forwarded-for'] || '').split(',').at(-1)?.trim() : '';
-      const result = rooms.handle(path.slice('/api/v2'.length), await readJsonBody(req, 131072), token, forwarded || req.socket.remoteAddress);
-      await rooms.persist();
+      const roomPath = path.slice('/api/v2'.length);
+      const body = await readJsonBody(req, 131072);
+      const result = roomPath === '/complete'
+        ? await rooms.complete(body, token, forwarded || req.socket.remoteAddress)
+        : rooms.handle(roomPath, body, token, forwarded || req.socket.remoteAddress);
+      if (roomPath !== '/complete') await rooms.persist();
       jsonResponse(res, 200, { ok: true, instance: rooms.instance, serverTime: Date.now(), ...result });
     } catch (error) {
       sendError(res, error.status || 400, error.message, { instance: rooms.instance });

@@ -112,6 +112,61 @@ test('start notify, atomic takeover, frozen time, end dedupe and history reset',
   assert.equal(t.call('/list', {}, t.guest).rooms.some(x => x.id === fresh.id && x.state === 'mounted'), true);
   assert.equal(t.call('/remount', { id: r.id, request_id: 'remount-1' }, t.guest).room.id, fresh.id);
 });
+test('complete broadcasts the final score, deletes the room and allows the next match immediately', async () => {
+  const t = setup(); let r = t.create();
+  r = t.call('/start', { id: r.id, revision: r.rev }).room;
+  await microtasks();
+  t.advance(12000);
+  const result = await t.rooms.complete({
+    id: r.id,
+    revision: r.rev,
+    board: board(),
+    scores: { red: 9, blue: 6 },
+    left: { ...match.left, name: '终局红方' },
+    right: { ...match.right, name: '终局蓝方' }
+  }, t.host, 'a');
+  assert.equal(result.deleted, true);
+  assert.deepEqual(result.scores, { red: 9, blue: 6 });
+  assert.equal(result.elapsed_seconds, 12);
+  assert.equal(t.sent.length, 2);
+  assert.match(t.sent[1], /红方 终局红方：9 分/);
+  assert.match(t.sent[1], /蓝方 终局蓝方：6 分/);
+  assert.throws(() => t.call('/get', { id: r.id }), /不存在/);
+  const next = t.create();
+  assert.notEqual(next.id, r.id);
+  assert.equal(next.state, 'waiting');
+});
+test('complete keeps the ended room when delivery fails and never retries an unknown result', async () => {
+  let mode = 'failed';
+  let attempts = 0;
+  const t = setup(async () => {
+    attempts++;
+    if (mode === 'sent') return;
+    throw Object.assign(new Error(mode === 'unknown' ? 'timeout' : 'rejected'), { uncertain: mode === 'unknown' });
+  });
+  let r = t.create();
+  await assert.rejects(t.rooms.complete({
+    id: r.id, revision: r.rev, board: board(), scores: { red: 2, blue: 1 }
+  }, t.host, 'a'), /当前房间未删除/);
+  r = t.call('/get', { id: r.id }).room;
+  assert.equal(r.state, 'ended');
+  assert.equal(r.delivery.end.status, 'failed');
+  mode = 'sent';
+  const retried = await t.rooms.complete({ id: r.id }, t.host, 'a');
+  assert.equal(retried.deleted, true);
+  assert.equal(attempts, 2);
+
+  mode = 'unknown';
+  const next = t.create();
+  await assert.rejects(t.rooms.complete({
+    id: next.id, revision: next.rev, board: board(), scores: { red: 4, blue: 3 }
+  }, t.host, 'a'), /结果未确认/);
+  const unknown = t.call('/get', { id: next.id }).room;
+  assert.equal(unknown.delivery.end.status, 'unknown');
+  mode = 'sent';
+  await assert.rejects(t.rooms.complete({ id: next.id }, t.host, 'a'), /结果未确认/);
+  assert.equal(attempts, 3);
+});
 test('ordinary referee pauses and resumes while paused matches stay out of QQ queries', async () => {
   const t = setup(); let r = t.create();
   r = t.call('/start', { id: r.id, revision: r.rev }).room;

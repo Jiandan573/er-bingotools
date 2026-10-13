@@ -46,6 +46,8 @@ export class Rooms {
     this.rates = new Map(); this.settings = { enabled: false, interval: 5 };
     this.lastSummary = 0; this.summaryPending = false;
     this.remountByRequest = new Map();
+    this.deliveryTasks = new Map();
+    this.completionTasks = new Map();
     this.persistenceReady = !store;
     this.persistenceError = null;
   }
@@ -284,17 +286,95 @@ export class Rooms {
     }
     return result;
   }
-  notify(r, kind) {
-    if (r.delivery[kind] && r.delivery[kind].status !== 'failed') return;
+  deliver(r, kind, durable = false) {
+    const key = `${r.id}:${kind}`;
+    if (r.delivery[kind] && r.delivery[kind].status !== 'failed') {
+      return this.deliveryTasks.get(key) || Promise.resolve(r.delivery[kind]);
+    }
     const state = { status: 'pending', error: '' };
     r.delivery[kind] = state;
-    this.changedPersist();
     const content = kind === 'start' ? this.formatStart(r.match) : this.summary(r, true);
-    Promise.resolve().then(() => this.send(content)).then(() => { state.status = 'sent'; this.changedPersist(); }, error => {
-      state.status = error.uncertain ? 'unknown' : 'failed';
-      state.error = this.cleanError(error.message);
-      this.changedPersist();
+    let task;
+    task = (async () => {
+      if (durable) await this.persist();
+      else this.changedPersist();
+      try {
+        await this.send(content);
+        state.status = 'sent';
+      } catch (error) {
+        state.status = error.uncertain ? 'unknown' : 'failed';
+        state.error = this.cleanError(error.message);
+      }
+      if (durable) await this.persist();
+      else this.changedPersist();
+      return state;
+    })().finally(() => {
+      if (this.deliveryTasks.get(key) === task) this.deliveryTasks.delete(key);
     });
+    this.deliveryTasks.set(key, task);
+    return task;
+  }
+  notify(r, kind) {
+    void this.deliver(r, kind).catch(() => {});
+  }
+  async complete(body = {}, token = '', ip = 'unknown') {
+    this.tick();
+    const s = this.session(token);
+    this.rate('request:' + s.id, 240);
+    const r = this.room(body.id);
+    this.host(s, r);
+    const active = this.completionTasks.get(r.id);
+    if (active) return active;
+    const task = this.completeRoom(r, body).finally(() => this.completionTasks.delete(r.id));
+    this.completionTasks.set(r.id, task);
+    return task;
+  }
+  async completeRoom(r, body) {
+    if (r.state !== 'ended') {
+      if (!['waiting', 'playing', 'paused', 'countdown'].includes(r.state)) throw fail('请先接管挂载比赛', 409);
+      this.revision(r, body);
+      this.applySnapshot(r, body);
+      r.elapsed = this.elapsed(r);
+      r.state = 'ended';
+      r.countdownEnd = 0;
+      r.anchor = 0;
+      r.records.push({ action: 'complete', referee: r.match.referee.title, at: this.now() });
+      this.changed(r);
+    }
+
+    let delivery = r.delivery.end;
+    if (delivery?.status === 'unknown') {
+      throw fail('比赛已结束并保存；QQ 播报结果未确认，请先核对群消息。当前房间未删除', 409);
+    }
+    if (delivery?.status === 'pending') {
+      const active = this.deliveryTasks.get(`${r.id}:end`);
+      if (!active) throw fail('比赛已结束并保存；结束播报结果仍未确认。当前房间未删除', 409);
+      delivery = await active;
+    } else if (!delivery || delivery.status === 'failed') {
+      delivery = await this.deliver(r, 'end', true);
+    }
+
+    if (delivery.status === 'unknown') {
+      throw fail('比赛已结束并保存；QQ 播报结果未确认，请先核对群消息。当前房间未删除', 409);
+    }
+    if (delivery.status !== 'sent') {
+      const reason = delivery.error ? `：${delivery.error}` : '';
+      throw fail(`比赛已结束并保存，但 QQ 结束播报失败${reason}。当前房间未删除，可在比赛列表重试`, 502);
+    }
+
+    const result = {
+      deleted: true,
+      room_id: r.id,
+      scores: clone(r.scores),
+      elapsed_seconds: this.elapsed(r),
+      match: clone(r.match)
+    };
+    this.rooms.delete(r.id);
+    for (const [requestId, roomId] of this.remountByRequest) {
+      if (roomId === r.id) this.remountByRequest.delete(requestId);
+    }
+    await this.persist();
+    return result;
   }
   tick() {
     this.sweep();
